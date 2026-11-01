@@ -28,3 +28,5 @@ work/contract-check-env/bin/python docs/design/1-minimal-research-loop/contract/
 测试使用固定字节与受信 fixture 回执，不联网访问 example.org。来源/引用交叉校验是真实程序检查；其余研究语义 gate 和文档审阅 gate 是显式 fixture。新增同 Skill 多实例的身份、回调/目录/回执、产物、信号、取消、预算、排队和恢复测试，以及两个实例的线程执行和最小 SQLite 表的双连接 CAS 竞争/控制行重开见证。单个模型依然按单写者串行修改，完整快照恢复是副本恢复，不证明生产 Checkpoint 事务、真实 Harness 会话/进程隔离、鉴权、网络隔离或模型语义质量。真实实现的必需验收仍见设计 §11.3。
 
 执行本验证不改变 Rust 后端和 TaskLoop crate 的技术选型，也不启动产品实现或安装此目录中的 Skill。
+
+一期公开输入仅支持问题、范围和 HTTP(S) 网址，上传/跨实例资料导入延后。run_epoch 是执行代数，不是分布式租约。模型中的 recheck 是后续扩展见证，不要求一期交付；检查器异常和存储读取错误必须保留原阶段并阻塞。

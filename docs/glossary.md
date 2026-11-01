@@ -31,3 +31,4 @@
 | BindingRegistry | 由宿主注册并锁定执行器、工具和检查器实际实现的能力映射。 | — |
 | ArtifactReceipt | 由受信工具宿主记录实际获取或写入事实并关联内容摘要的回执。 | — |
 | Checkpoint | TaskLoop 原子保存已接受产物、检查证据、状态转移及下一步待办的持久化记录。 | — |
+| run_epoch | TaskLoop 在取消或重启核对时递增、用于拒绝旧 Run 迟到提交的实例内执行代数，不表示带心跳的分布式租约。 | lease_epoch、fencing_epoch |

@@ -1,6 +1,6 @@
 {
   "scope": "契约/多实例设计模型与最小 SQLite CAS 见证；不证明完整 Rust 实现、真实 CLI/Harness、操作系统隔离、完整 Checkpoint 事务或研究语义质量",
-  "tests": 80,
+  "tests": 82,
   "failures": 0,
   "errors": 0,
   "passed": true,
@@ -29,16 +29,16 @@
     "snapshot.schema.json": "4bb6a5d14a198894966cb1541970961f39b8fc3bf341764d08ccbb458279dfc5",
     "sources-added.schema.json": "847e012fcaf3ab0556a3481aca02d5153f3e4e9da9dcf89a52dafcf25c770135",
     "start-request.schema.json": "2dc32b31f697184e2ae13e4692c9757ca40760d37ede4787056ada97042d23a8",
-    "submission.schema.json": "5c4a3304e48f71af97361f2b2129fd564bbf4d23bbecb6ac897cf632ab70980e",
+    "submission.schema.json": "456dbf693a206ecbd16254b0522d2bf4922eddf90fcb4d1ce84c4303fba7b11d",
     "task-input.schema.json": "c19d4165fec81b2ef227668ee6967e85452ef035d3824ac83204c44a96be7c3e",
-    "verify_contract.py": "f1aad9ce81afa5b486def42565d504e6a75f64d3a58e9da396271e082a50c7b9",
+    "verify_contract.py": "9647b3a525c7326d53eb1621820cf5d98fb3834e445162423ff27b4bda3034a3",
     "requirements.txt": "5bf6d53930534ae6cbfe3242813b04d60c69599efe0b8bd7b8168ed6330615f0",
     "skills/document-review/SKILL.md": "b0186fbaaf302a4e2e3419782f5859855fb45871e428002fe0bc51fe5f2280e8",
     "skills/inquiry-deep-research/SKILL.md": "b61c1c20d696988bb53fa9fd97815512cc68c54dab6bd38c91ba07e5fab21dc5"
   },
   "bundle_locks": {
-    "research.bundle.json": "1b9cae56cbabf1664ba851086bf7fb0c0c12829602a3cd7cb25542b1c0f30d56",
-    "document-review.bundle.json": "444a61df5732c6e80752a43cc25c075d0e2c1b38a0a4497c06e3aa0723449183"
+    "research.bundle.json": "2737cb190f9b41fd8f8b3b147ea23a7a238c10235a19a10a247337ec427dda0f",
+    "document-review.bundle.json": "344808d57025dcc3e89cb44894f44b8abaaa0baa11337d692451d0fb08bf2f0a"
   },
   "cases": [
     "test_accepted_content_is_immutable_copy",
@@ -50,9 +50,11 @@
     "test_bounded_research_loop",
     "test_cancel_before_result_blocks_late_completion",
     "test_cancel_one_instance_does_not_cancel_another",
+    "test_candidate_storage_error_blocks_without_rejected_transition",
     "test_capture_content_changed_fails",
     "test_changed_duplicate_submission_conflicts",
     "test_check_error_blocks_and_operator_rechecks",
+    "test_checker_unexpected_exception_blocks_without_accepting",
     "test_citation_to_unknown_artifact_fails",
     "test_completion_before_cancel_keeps_terminal",
     "test_cross_instance_output_directory_is_rejected",

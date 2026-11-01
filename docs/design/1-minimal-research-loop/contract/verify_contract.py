@@ -196,7 +196,7 @@ class Model:
             return
         self.run_count += 1
         self.epoch += 1
-        self.active = {"protocol_version": 1, "execution_id": self.execution_id, "task_id": f"{self.execution_id}:task-{self.state}-{self.visits[self.state]}", "run_id": f"{self.execution_id}:run-{self.run_count}", "state_id": self.state, "visit": self.visits[self.state], "contract_digest": self.lock, "lease_epoch": self.epoch}
+        self.active = {"protocol_version": 1, "execution_id": self.execution_id, "task_id": f"{self.execution_id}:task-{self.state}-{self.visits[self.state]}", "run_id": f"{self.execution_id}:run-{self.run_count}", "state_id": self.state, "visit": self.visits[self.state], "contract_digest": self.lock, "run_epoch": self.epoch}
         self.owned_runs.add(self.active["run_id"])
 
     def _move(self, target, reason):
@@ -283,7 +283,15 @@ class Model:
         self.check_evidence[ref] = {"run_id": self.active["run_id"], "contract_digest": self.lock, "checker": entry["gate"], "candidate_sha256": {k: v["sha256"] for k, v in data.items()}}
         view = GateView(self)
         view.check_ref = ref
-        return HOST_GATES[entry["gate"]](view, copy.deepcopy(entry), copy.deepcopy(data))
+        try:
+            return HOST_GATES[entry["gate"]](view, copy.deepcopy(entry), copy.deepcopy(data))
+        except ContractError:
+            raise  # 示例检查器的可判定领域拒绝；基础设施异常走 error。
+        except Exception:
+            self.check_evidence[ref]["error_code"] = "check_unavailable"
+            return {"verdict": "error", "outcome": None, "evidence_refs": [ref],
+                    "violations": [{"code": "check_unavailable", "subject": entry["gate"],
+                                    "message": "checker execution failed"}]}
 
     def _research_fixture_gate(self, entry, data):
         # 来源和引用做真实交叉校验，其余领域推理为明确标注的 fixture gate。
@@ -372,6 +380,10 @@ class Model:
             self.submissions[key] = rejected
             self._move(self.definition()["rejected"], "work.rejected")
             return rejected
+        except OSError:
+            self.status = "blocked"
+            self.revision += 1
+            return {"accepted": False, "code": "storage_error"}
 
     def _accept_checked(self, submission, data, entry):
         checked = copy.deepcopy(self._gate(entry, data))
@@ -404,6 +416,7 @@ class Model:
         return receipt
 
     def recheck(self, actor="operator", expected_revision=None):
+        # 后续扩展约束见证；不属于一期公开 API。
         require(actor == "operator", "signal_forbidden")
         require(expected_revision == self.revision, "revision_conflict")
         require(self.status == "blocked" and self.pending, "not_check_blocked")
@@ -772,6 +785,32 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(m.recheck(expected_revision=m.revision)["accepted"])
         self.assertEqual((m.state, m.status), ("failed", "failed"))
 
+    def test_checker_unexpected_exception_blocks_without_accepting(self):
+        saved = HOST_GATES["inquiry.scope.gate"]
+        def broken(view, entry, data):
+            raise RuntimeError("private provider details")
+        HOST_GATES["inquiry.scope.gate"] = broken
+        try:
+            m = Model(); result = advance(m)
+            self.assertEqual((m.state, m.status, len(m.artifacts)), ("scope", "blocked", 0))
+            self.assertEqual(next(iter(m.check_evidence.values()))["error_code"], "check_unavailable")
+            self.assertNotIn("private provider", json.dumps(m.check_evidence))
+            self.assertFalse(any(e.get("type") == "work.accepted" for e in m.events))
+            m.cancel(); m.confirm_stopped(); self.assertEqual(m.status, "cancelled")
+        finally:
+            HOST_GATES["inquiry.scope.gate"] = saved
+
+    def test_candidate_storage_error_blocks_without_rejected_transition(self):
+        m = Model()
+        def unreadable(*args):
+            raise OSError("storage read unavailable")
+        m._collect = unreadable
+        with tempfile.TemporaryDirectory() as p:
+            directory = Path(p); submission = fixture_submission(m, directory)
+            result = m.submit(submission, directory)
+        self.assertEqual(result["code"], "storage_error")
+        self.assertEqual((m.state, m.status, len(m.artifacts)), ("scope", "blocked", 0))
+
     def test_gate_has_no_state_control_handle(self):
         saved = HOST_GATES["inquiry.scope.gate"]
         def checker(view, entry, data):
@@ -823,7 +862,7 @@ class ContractTests(unittest.TestCase):
     def test_valid_but_stale_epoch_rejected(self):
         m = Model()
         with tempfile.TemporaryDirectory() as p:
-            d = Path(p); s = fixture_submission(m, d); m.active["lease_epoch"] = 2
+            d = Path(p); s = fixture_submission(m, d); m.active["run_epoch"] = 2
             with self.assertRaisesRegex(ContractError, "stale_or_wrong_attempt"): m.submit(s, d)
 
     def test_wrong_state_cannot_reuse_current_run(self):
