@@ -6,12 +6,17 @@
 from __future__ import annotations
 
 import copy
+import concurrent.futures
 import hashlib
 import importlib.metadata
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
+import uuid
+import threading
+from collections import deque
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -83,8 +88,7 @@ def compile_bundle(bundle):
         require(entry["gate"] in REGISTRY["gates"], "gate_unregistered")
         require(set(entry["tools"]) <= set(REGISTRY["tools"]), "tool_unregistered")
         binding = REGISTRY["executors"][entry["executor"]]
-        if binding["kind"] == "harness":
-            require(set(["bounded_entry", "collect_artifacts", "cancel"]) <= set(binding["capabilities"]), "adapter_incapable")
+        require(set(["bounded_entry", "collect_artifacts", "cancel", "isolated_workspace", "isolated_context"]) <= set(binding.get("capabilities", [])), "adapter_incapable")
         schema_names.add(entry["input_schema"])
         schema_names.update(o["schema"] for o in entry["outputs"].values())
         for dep in entry.get("requires", []):
@@ -133,7 +137,8 @@ class Model:
     def __init__(self, bundle_name="research.bundle.json", routes=None, inputs=None, grants=None):
         self.bundle = parse_json((ROOT / bundle_name).read_text())
         self.lock = compile_bundle(self.bundle)
-        self.inputs = inputs if inputs is not None else parse_json((ROOT / "research-input.example.json").read_text())
+        self.execution_id = "execution-" + uuid.uuid4().hex
+        self.inputs = copy.deepcopy(inputs) if inputs is not None else parse_json((ROOT / "research-input.example.json").read_text())
         validate(self.bundle["flow"]["input_schema"], self.inputs)
         effective = set(REGISTRY["tools"]) if grants is None else set(grants)
         require(all(set(e["tools"]) <= effective for e in self.bundle["entries"].values()), "required_capability_denied")
@@ -142,7 +147,8 @@ class Model:
         self.transitions = 0
         self.visits, self.events, self.history, self.artifacts = {}, [], [], {}
         self.receipts, self.submissions, self.signals, self.signal_facts, self.check_evidence = {}, {}, {}, [], {}
-        self.routes = routes or {}  # 注入的领域检查结果，来自受信 fixture，不来自 Agent 字段。
+        self.owned_runs, self.output_roots = set(), {}
+        self.routes = copy.deepcopy(routes or {})  # 注入的领域检查结果，来自受信 fixture，不来自 Agent 字段。
         self.active, self.pending = None, None
         self._enter(self.state)
 
@@ -190,7 +196,8 @@ class Model:
             return
         self.run_count += 1
         self.epoch += 1
-        self.active = {"protocol_version": 1, "execution_id": "execution-fixture", "task_id": f"task-{self.state}-{self.visits[self.state]}", "run_id": f"run-{self.run_count}", "state_id": self.state, "visit": self.visits[self.state], "contract_digest": self.lock, "lease_epoch": self.epoch}
+        self.active = {"protocol_version": 1, "execution_id": self.execution_id, "task_id": f"{self.execution_id}:task-{self.state}-{self.visits[self.state]}", "run_id": f"{self.execution_id}:run-{self.run_count}", "state_id": self.state, "visit": self.visits[self.state], "contract_digest": self.lock, "lease_epoch": self.epoch}
+        self.owned_runs.add(self.active["run_id"])
 
     def _move(self, target, reason):
         limits = self.bundle["flow"]["limits"]
@@ -228,7 +235,18 @@ class Model:
         require(origin == "trusted_tool", "untrusted_receipt")
         require(rid not in self.receipts, "receipt_immutable")
         validate("receipt.schema.json", fact)
+        require(fact["run_id"] in self.owned_runs, "receipt_wrong_execution")
         self.receipts[rid] = copy.deepcopy(fact)
+
+    def bind_output_root(self, run_id, directory, origin="host"):
+        require(origin == "host" and run_id in self.owned_runs, "output_binding_forbidden")
+        path = str(directory.resolve())
+        require(run_id not in self.output_roots or self.output_roots[run_id] == path, "output_root_rebind")
+        self.output_roots[run_id] = path
+
+    def read_artifact(self, artifact_id):
+        require(artifact_id in self.artifacts, "artifact_not_in_execution")
+        return self.artifacts[artifact_id]["bytes"]
 
     def _collect(self, submission, directory, entry):
         root = directory.resolve()
@@ -261,7 +279,7 @@ class Model:
         return collected
 
     def _gate(self, entry, data):
-        ref = f"check-call-{len(self.check_evidence) + 1}"
+        ref = f"{self.execution_id}:check-call-{len(self.check_evidence) + 1}"
         self.check_evidence[ref] = {"run_id": self.active["run_id"], "contract_digest": self.lock, "checker": entry["gate"], "candidate_sha256": {k: v["sha256"] for k, v in data.items()}}
         view = GateView(self)
         view.check_ref = ref
@@ -271,7 +289,10 @@ class Model:
         # 来源和引用做真实交叉校验，其余领域推理为明确标注的 fixture gate。
         slot = next(iter(entry["outputs"]))
         value = data[slot]["json"]
-        if slot == "materials":
+        if slot == "plan":
+            require(value["question"] == self.inputs["question"], "question_mismatch")
+            outcome = "ready"
+        elif slot == "materials":
             expected = {i["source_id"]: i for i in self.last("candidates")["json"]["items"]}
             items = value["items"]
             require(len(items) == len({i["source_id"] for i in items}), "duplicate_source")
@@ -327,6 +348,7 @@ class Model:
     def submit(self, submission, directory, origin="adapter", force_check_error=False):
         require(origin == "adapter", "untrusted_event_source")
         validate("submission.schema.json", submission)
+        require(submission["execution_id"] == self.execution_id, "wrong_execution")
         key, fingerprint = submission["run_id"], digest(canonical(submission))
         if key in self.submissions:
             prior = self.submissions[key]
@@ -335,6 +357,7 @@ class Model:
         require(self.status == "running" and self.active, "not_running")
         require(compile_bundle(self.bundle) == self.lock, "definition_changed")
         require(all(submission[k] == v for k, v in self.active.items()), "stale_or_wrong_attempt")
+        require(self.output_roots.get(submission["run_id"]) == str(directory.resolve()), "output_root_mismatch")
         entry = self.bundle["entries"][self.definition()["entry"]]
         try:
             data = self._collect(submission, directory, entry)
@@ -369,7 +392,7 @@ class Model:
         require(checked["verdict"] == "pass", "domain_check_failed")
         stored = {}
         for slot, item in data.items():
-            aid = f"artifact-{len(self.artifacts) + 1}"
+            aid = f"{self.execution_id}:artifact-{len(self.artifacts) + 1}"
             saved = dict(item, id=aid, producer_run_id=submission["run_id"])
             self.artifacts[aid] = saved
             stored[slot] = saved
@@ -406,7 +429,7 @@ class Model:
         action = self.definition()["signals"].get(name)
         require(action is not None, "signal_not_allowed")
         validate(action["schema"], payload)
-        fact = {"id": f"signal-{len(self.signal_facts) + 1}", "name": name, "payload": copy.deepcopy(payload), "actor": actor}
+        fact = {"id": f"{self.execution_id}:signal-{len(self.signal_facts) + 1}", "name": name, "payload": copy.deepcopy(payload), "actor": actor}
         self.signal_facts.append(fact)
         self.signals[request_key] = {"fingerprint": fingerprint, "fact_id": fact["id"]}
         self._move(action["target"], "signal.accepted")
@@ -434,11 +457,11 @@ class Model:
         return copy.deepcopy(self.__dict__)
 
     @classmethod
-    def restore(cls, state):
+    def restore(cls, state, active_was_started=True):
         instance = cls.__new__(cls)
         instance.__dict__ = copy.deepcopy(state)
         require(compile_bundle(instance.bundle) == instance.lock, "definition_changed")
-        if instance.status == "running":
+        if instance.status == "running" and active_was_started:
             instance.status = "blocked"
             instance.active = None
             instance.epoch += 1
@@ -473,10 +496,11 @@ def fixture_submission(model, directory, modify=None):
     """受信工具和模型候选分开构造；example.org 不是联网探测结果。"""
     state = model.state
     active = copy.deepcopy(model.active)
+    model.bind_output_root(active["run_id"], directory)
     entry = model.bundle["entries"][model.definition()["entry"]]
     slot = next(iter(entry["outputs"]))
     if slot == "plan":
-        payload = {"question": "X 的 Y 能力有哪些限制", "subquestions": ["能力", "限制"], "search_queries": ["X Y 官方资料"], "stop_reason": "query_budget"}
+        payload = {"question": model.inputs["question"], "subquestions": ["能力", "限制"], "search_queries": ["X Y 官方资料"], "stop_reason": "query_budget"}
     elif slot == "candidates":
         payload = {"items": [{"source_id": "s1", "url": "https://example.org/doc", "discovery_receipt_id": "search-receipt-fixture", "subquestion": "限制"}], "stop_reason": "candidate_budget"}
     elif slot == "materials":
@@ -523,7 +547,214 @@ def through(model, target):
     raise ContractError("fixture_loop")
 
 
+class InstancePool:
+    """单 Worker 的有界、轮转设计模型；不是实际进程调度器。"""
+
+    def __init__(self, capacity=8):
+        self.capacity, self.instances, self.starts, self.queue = capacity, {}, {}, deque()
+
+    def start(self, request_key, inputs=None, routes=None, principal="local-user"):
+        key = ("workspace-fixture", principal, "start", request_key)
+        data = inputs if inputs is not None else parse_json((ROOT / "research-input.example.json").read_text())
+        route_descriptor = sorted([list(k) + [v] for k, v in (routes or {}).items()])
+        fingerprint = digest(canonical([data, route_descriptor]))
+        if key in self.starts:
+            prior = self.starts[key]
+            require(prior["fingerprint"] == fingerprint, "request_conflict")
+            return prior["execution_id"]
+        active = sum(m.status not in ["completed", "failed", "cancelled"] for m in self.instances.values())
+        require(active < self.capacity, "admission_full")
+        model = Model(inputs=data, routes=routes)
+        self.instances[model.execution_id] = model
+        self.starts[key] = {"fingerprint": fingerprint, "execution_id": model.execution_id}
+        self.queue.append(model.execution_id)
+        return model.execution_id
+
+    def step(self):
+        while self.queue:
+            eid = self.queue.popleft()
+            model = self.instances[eid]
+            if model.status != "running":
+                continue
+            advance(model)
+            if model.status == "running":
+                self.queue.append(eid)
+            return eid
+        return None
+
+    def signal(self, eid, name, payload, request_key, revision):
+        result = self.instances[eid].signal(name, payload, request_key, revision)
+        if self.instances[eid].status == "running" and eid not in self.queue:
+            self.queue.append(eid)
+        return result
+
+    def cancel(self, eid):
+        model = self.instances[eid]
+        model.cancel()
+        if model.status == "cancelling":
+            model.confirm_stopped()  # 仅模拟已收到真实停止确认，不证明真实 OS 停止。
+        self.queue = deque(i for i in self.queue if i != eid)
+
+    def snapshot(self):
+        return {"capacity": self.capacity, "instances": {eid: m.crash_snapshot() for eid, m in self.instances.items()}, "starts": copy.deepcopy(self.starts), "queue": list(self.queue)}
+
+    @classmethod
+    def restore(cls, snapshot):
+        pool = cls(snapshot["capacity"])
+        pool.starts = copy.deepcopy(snapshot["starts"])
+        pending = set(snapshot["queue"])
+        pool.instances = {eid: Model.restore(s, active_was_started=eid not in pending) for eid, s in snapshot["instances"].items()}
+        pool.queue = deque(eid for eid in snapshot["queue"] if pool.instances[eid].status == "running")
+        return pool
+
+
 class ContractTests(unittest.TestCase):
+    def test_relabelled_other_question_content_fails_domain_gate(self):
+        a=Model(inputs={"question":"question A","seed_urls":[],"scope":"fixture"})
+        b=Model(inputs={"question":"question B","seed_urls":[],"scope":"fixture"})
+        with tempfile.TemporaryDirectory() as pa,tempfile.TemporaryDirectory() as pb:
+            da,db=Path(pa),Path(pb);fixture_submission(a,da);submission=fixture_submission(b,db)
+            (db/"plan.json").write_bytes((da/"plan.json").read_bytes())
+            self.assertEqual(b.submit(submission,db)["code"],"question_mismatch")
+        self.assertEqual((a.state,b.state),("scope","failed"))
+
+    def test_shared_request_objects_are_frozen_per_instance(self):
+        inputs={"question":"original","seed_urls":[],"scope":"fixture"};routes={("catalogue",1):"need_more"}
+        a,b=Model(inputs=inputs,routes=routes),Model(inputs=inputs,routes=routes)
+        inputs["question"]="changed";routes[("catalogue",1)]="need_input"
+        self.assertEqual((a.inputs["question"],b.inputs["question"]),("original","original"))
+        a.routes[("catalogue",1)]="ready"
+        self.assertEqual(b.routes[("catalogue",1)],"need_more")
+
+    def test_adapter_without_instance_isolation_is_rejected(self):
+        saved = copy.deepcopy(REGISTRY["executors"]["research.agent"])
+        REGISTRY["executors"]["research.agent"]["capabilities"].remove("isolated_context")
+        try:
+            with self.assertRaisesRegex(ContractError, "adapter_incapable"): compile_bundle(parse_json((ROOT / "research.bundle.json").read_text()))
+        finally:
+            REGISTRY["executors"]["research.agent"] = saved
+
+    def test_same_skill_instances_have_distinct_allocation_ids(self):
+        a, b = Model(), Model()
+        self.assertEqual(a.lock, b.lock)
+        for field in ["execution_id", "task_id", "run_id"]:
+            self.assertNotEqual(a.active[field], b.active[field])
+
+    def test_cross_instance_submission_is_rejected_without_mutation(self):
+        a, b = Model(), Model(); before = b.crash_snapshot()
+        with tempfile.TemporaryDirectory() as p:
+            d = Path(p); submission = fixture_submission(a, d)
+            with self.assertRaisesRegex(ContractError, "wrong_execution"): b.submit(submission, d)
+        self.assertEqual(b.__dict__, before)
+
+    def test_relabelled_cross_instance_run_is_rejected(self):
+        a, b = Model(), Model()
+        with tempfile.TemporaryDirectory() as p:
+            d = Path(p); submission = fixture_submission(a, d); submission["execution_id"] = b.execution_id
+            with self.assertRaisesRegex(ContractError, "stale_or_wrong_attempt"): b.submit(submission, d)
+
+    def test_cross_instance_output_directory_is_rejected(self):
+        a, b = Model(), Model()
+        with tempfile.TemporaryDirectory() as pa, tempfile.TemporaryDirectory() as pb:
+            da, db = Path(pa), Path(pb); foreign = fixture_submission(a, da); fixture_submission(b, db)
+            forged = dict(b.active, artifacts=foreign["artifacts"])
+            with self.assertRaisesRegex(ContractError, "output_root_mismatch"): b.submit(forged, da)
+
+    def test_cross_instance_tool_receipt_is_rejected(self):
+        a, b = Model(), Model(); through(a, "capture"); through(b, "capture")
+        with tempfile.TemporaryDirectory() as p:
+            fixture_submission(a, Path(p)); rid, fact = next(iter(a.receipts.items()))
+            with self.assertRaisesRegex(ContractError, "receipt_wrong_execution"): b.record_tool_receipt(rid, fact)
+        self.assertFalse(b.receipts)
+
+    def test_parallel_same_skill_models_keep_artifact_ownership(self):
+        def run(question):
+            m = Model(inputs={"question": question, "seed_urls": [], "scope": "fixture"})
+            through(m, "done")
+            return m
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            a, b = list(pool.map(run, ["question A", "question B"]))
+        self.assertEqual((a.status, b.status), ("completed", "completed"))
+        self.assertEqual(a.last("plan")["json"]["question"], "question A")
+        self.assertEqual(b.last("plan")["json"]["question"], "question B")
+        self.assertTrue(set(a.artifacts).isdisjoint(b.artifacts))
+        self.assertTrue(set(a.check_evidence).isdisjoint(b.check_evidence))
+        with self.assertRaisesRegex(ContractError, "artifact_not_in_execution"): b.read_artifact(next(iter(a.artifacts)))
+
+    def test_same_skill_pool_round_robin_and_independent_states(self):
+        p = InstancePool(); a = p.start("a"); b = p.start("b")
+        self.assertEqual(p.step(), a)
+        self.assertEqual((p.instances[a].state, p.instances[b].state), ("discover", "scope"))
+        self.assertEqual(p.step(), b)
+        self.assertEqual((p.instances[a].state, p.instances[b].state), ("discover", "discover"))
+        self.assertEqual(p.step(), a)
+        self.assertEqual(p.step(), b)
+
+    def test_waiting_instance_does_not_block_other_instance(self):
+        p = InstancePool(); a = p.start("a", routes={("discover", 1): "need_input"}); b = p.start("b")
+        for _ in range(20):
+            if p.step() is None: break
+        self.assertEqual(p.instances[a].status, "waiting")
+        self.assertEqual(p.instances[b].status, "completed")
+
+    def test_cancel_one_instance_does_not_cancel_another(self):
+        p = InstancePool(); a = p.start("a"); b = p.start("b"); p.cancel(a)
+        for _ in range(10):
+            if p.step() is None: break
+        self.assertEqual(p.instances[a].status, "cancelled")
+        self.assertEqual(p.instances[b].status, "completed")
+
+    def test_same_signal_key_is_scoped_to_each_instance(self):
+        p = InstancePool(); route={("discover", 1): "need_input"}; a=p.start("a",routes=route);b=p.start("b",routes=route)
+        while p.step() is not None: pass
+        data={"urls":["https://example.org/more"],"reason":"more"}
+        p.signal(a,"sources.added",data,"same-key",p.instances[a].revision)
+        self.assertEqual(p.instances[b].status,"waiting")
+        p.signal(b,"sources.added",data,"same-key",p.instances[b].revision)
+        self.assertNotEqual(p.instances[a].signal_facts[0]["id"],p.instances[b].signal_facts[0]["id"])
+
+    def test_same_skill_start_idempotency_is_not_skill_deduplication(self):
+        p=InstancePool(capacity=2);a=p.start("one");self.assertEqual(p.start("one"),a);b=p.start("two")
+        self.assertNotEqual(a,b)
+        self.assertEqual(p.start("one"),a)  # admission 满时仍先返回已接受的幂等回执。
+        with self.assertRaisesRegex(ContractError,"admission_full"):p.start("three")
+        with self.assertRaisesRegex(ContractError,"request_conflict"):p.start("one",inputs={"question":"different","seed_urls":[],"scope":"fixture"})
+        self.assertEqual(len(p.instances),2)
+
+    def test_pool_restore_keeps_multiple_ids_and_pending_work(self):
+        p=InstancePool();a=p.start("one");b=p.start("two");p.step()
+        restored=InstancePool.restore(p.snapshot())
+        self.assertEqual(restored.start("one"),a);self.assertEqual(restored.start("two"),b)
+        self.assertEqual(restored.instances[a].state,"discover");self.assertEqual(restored.instances[b].state,"scope")
+        for _ in range(20):
+            if restored.step() is None:break
+        self.assertEqual((restored.instances[a].status,restored.instances[b].status),("completed","completed"))
+
+    def test_one_instance_loop_budget_does_not_consume_anothers(self):
+        p=InstancePool();a=p.start("a",routes={("catalogue",i):"need_more" for i in range(1,5)});b=p.start("b")
+        for _ in range(50):
+            if p.step() is None:break
+        self.assertEqual((p.instances[a].status,p.instances[b].status),("failed","completed"))
+        self.assertEqual(p.instances[b].visits["discover"],1)
+
+    def test_sqlite_cas_is_scoped_by_execution_and_survives_reopen(self):
+        with tempfile.TemporaryDirectory() as path:
+            db=Path(path)/"state.db"
+            c=sqlite3.connect(db);c.execute("PRAGMA journal_mode=WAL");c.execute("CREATE TABLE flow(execution_id TEXT PRIMARY KEY, skill TEXT NOT NULL, state TEXT NOT NULL, revision INTEGER NOT NULL)")
+            c.executemany("INSERT INTO flow VALUES(?,?,?,?)",[("A","same-skill","scope",0),("B","same-skill","scope",0)]);c.commit();c.close()
+            barrier=threading.Barrier(2)
+            def compete(target):
+                conn=sqlite3.connect(db,timeout=10)
+                revision=conn.execute("SELECT revision FROM flow WHERE execution_id='A'").fetchone()[0]
+                barrier.wait(timeout=10)
+                count=conn.execute("UPDATE flow SET state=?, revision=revision+1 WHERE execution_id=? AND revision=?",(target,"A",revision)).rowcount
+                conn.commit();conn.close();return count
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(compete,["discover","cancelled"]))
+            self.assertEqual(sorted(results),[0,1])
+            c=sqlite3.connect(db);self.assertEqual(c.execute("SELECT state,revision FROM flow WHERE execution_id='B'").fetchone(),("scope",0))
+            self.assertEqual(c.execute("UPDATE flow SET state='discover',revision=revision+1 WHERE execution_id='B' AND revision=0").rowcount,1);c.commit();c.close()
+            c=sqlite3.connect(db);self.assertEqual(c.execute("SELECT revision FROM flow ORDER BY execution_id").fetchall(),[(1,),(1,)]);c.close()
+
     def test_terminal_cannot_bypass_required_accepted_report(self):
         m = Model(); m._move("done", "fixture_attempted_jump")
         self.assertEqual((m.state, m.status), ("scope", "blocked"))
@@ -561,7 +792,7 @@ class ContractTests(unittest.TestCase):
             return {"verdict": "pass", "outcome": "ready", "evidence_refs": [view.check_ref], "violations": []}
         HOST_GATES["inquiry.scope.gate"] = checker
         try:
-            m = Model(); advance(m); self.assertEqual(m.last("plan")["json"]["question"], "X 的 Y 能力有哪些限制")
+            m = Model(); advance(m); self.assertEqual(m.last("plan")["json"]["question"], m.inputs["question"])
         finally:
             HOST_GATES["inquiry.scope.gate"] = saved
 
@@ -895,6 +1126,6 @@ if __name__ == "__main__":
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ContractTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     files = sorted(p for p in ROOT.glob("*.json") if p.name not in ["verification-result.json", "trace.examples.json"]) + [Path(__file__), ROOT / "requirements.txt"] + sorted((ROOT / "skills").rglob("SKILL.md"))
-    summary = {"scope": "契约与离散转移模型；不证明 Rust 实现、真实 CLI/Harness、操作系统隔离、SQLite 原子性或研究语义质量", "tests": result.testsRun, "failures": len(result.failures), "errors": len(result.errors), "passed": result.wasSuccessful(), "python": sys.version.split()[0], "jsonschema": importlib.metadata.version("jsonschema"), "source_sha256": {p.relative_to(ROOT).as_posix(): digest(p.read_bytes()) for p in files}, "bundle_locks": {n: compile_bundle(parse_json((ROOT / n).read_text())) for n in ["research.bundle.json", "document-review.bundle.json"]}, "cases": sorted(n for n in dir(ContractTests) if n.startswith("test_"))}
+    summary = {"scope": "契约/多实例设计模型与最小 SQLite CAS 见证；不证明完整 Rust 实现、真实 CLI/Harness、操作系统隔离、完整 Checkpoint 事务或研究语义质量", "tests": result.testsRun, "failures": len(result.failures), "errors": len(result.errors), "passed": result.wasSuccessful(), "python": sys.version.split()[0], "jsonschema": importlib.metadata.version("jsonschema"), "source_sha256": {p.relative_to(ROOT).as_posix(): digest(p.read_bytes()) for p in files}, "bundle_locks": {n: compile_bundle(parse_json((ROOT / n).read_text())) for n in ["research.bundle.json", "document-review.bundle.json"]}, "cases": sorted(n for n in dir(ContractTests) if n.startswith("test_"))}
     (ROOT / "verification-result.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     raise SystemExit(not result.wasSuccessful())

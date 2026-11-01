@@ -7,7 +7,9 @@
       "capabilities": [
         "bounded_entry",
         "collect_artifacts",
-        "cancel"
+        "cancel",
+        "isolated_workspace",
+        "isolated_context"
       ],
       "profile": "research-readonly@1"
     },
@@ -17,7 +19,14 @@
       "argv": [
         "inspect"
       ],
-      "adapter": "registered-cli-json@1"
+      "adapter": "registered-cli-json@1",
+      "capabilities": [
+        "bounded_entry",
+        "collect_artifacts",
+        "cancel",
+        "isolated_workspace",
+        "isolated_context"
+      ]
     }
   },
   "gates": {

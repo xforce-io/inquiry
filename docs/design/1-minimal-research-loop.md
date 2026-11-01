@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |---|---|
-| 版本 | v0.4.0，2026-11-01 |
+| 版本 | v0.4.1，2026-11-01 |
 | 状态 | Draft，完整基础契约方案；未自签架构批准，未实现生产运行时 |
 | 需求 | [Inquiry Issue #1](https://github.com/xforce-io/inquiry/issues/1)，S1–S4 |
 | 技术基线 | TypeScript 前端、Inquiry Rust 后端、TaskLoop Rust crate 同进程直接依赖 |
@@ -54,7 +54,7 @@ Playbook 可以作为 Skill 的附加资源，也可以独立存于业务应用�
 
 ### 3.2 轻量内核边界
 
-一期只需平面状态机：`work / wait / terminal` 三种状态、单活动 Run、命名事件、枚举结果选边、有限回环、SQLite 事务和本地不可变产物。条件不支持任意脚本表达式，复杂领域条件由注册检查器计算成有限结果。也不引入独立服务、网络队列或跨语言 FFI。
+一期只需平面状态机：`work / wait / terminal` 三种状态、每实例单活动 Run、多个实例独立排队、命名事件、枚举结果选边、有限回环、SQLite 事务和本地不可变产物。条件不支持任意脚本表达式，复杂领域条件由注册检查器计算成有限结果。也不引入独立服务、网络队列或跨语言 FFI。
 
 嵌套/并行状态、任意工作流 DSL、自动修改状态图、热迁移活动定义、跨服务分布式事务和自动学习路由不属于本版。模型可以在已声明边内建议补查；不能凭返回一个 next_state 创造新状态或重写验收。以后需要图外重规划，必须形成新定义/新实例或经过独立设计，不能暗中扩权。
 
@@ -207,6 +207,34 @@ SQLite 单写者事务保存 `(execution_id, revision, current_state, state_visi
 
 同 Run 的同一提交重放返回先前回执，不再触发状态推进；同标识不同清单报 conflict。旧 Run/旧访问/旧定义的结果只能隔离留证，不能改变当前状态。取消与成功提交串行化：取消先提交则拒绝迟到完成；完成先提交则取消返回原终态。
 
+### 6.6 同一 Skill 的多个任务：定义共享，实例隔离
+
+Skill/EntryContract/Playbook 是可复用的只读定义，不保存某个任务的 current_state。多个研究请求即使使用同一 Skill、同一版本、同一阶段名，也创建不同的 ExecutionId/FlowInstance。每个实例独立持有输入、revision、访问次数、Task/Run、预算、等待信号、检查记录、产物引用与终态。
+
+| 资源/记录 | 隔离标识或约束 |
+|---|---|
+| 流程状态和 Checkpoint | workspace_id + execution_id；revision 仅在该实例内递增 |
+| 状态访问 | execution_id + state_id + visit；同阶段名字不能作为全局键 |
+| Task/Run | 全局唯一 ID，并通过外键校验归属实例；局部计数须带实例命名空间 |
+| staging、cwd、配置与 Harness 会话 | 按 execution_id/run_id 独立绑定；Skill 包只读共享，不以 Skill 目录作为运行数据目录 |
+| 产物/回执/检查证据 | 全局唯一逻辑 ID 或 execution_id + 局部 ID；读取必须校验归属/授权；物理字节可按摘要去重，不能因此共享逻辑访问权 |
+| 完成回调 | 先校验实例归属，再校验 Run/visit/epoch/定义及宿主绑定的输出目录，再查该实例幂等记录 |
+| start 幂等 | workspace + principal + start + request_key；同 Skill 不代表重复请求，不同业务请求使用不同 key |
+| signal/cancel 幂等 | workspace + execution_id + command + request_key；A 的 key 或 revision 不消耗 B 的记录 |
+| 取消 | 只停止该实例所拥有的 Run/进程组；不得按 CLI/Skill 名称批量终止 |
+
+**接收多个任务与并行执行是两个限制。** 一期允许有界接收多个实例，本稿建议默认 max_admitted_instances=8、max_concurrent_runs=1；达到接收上限，在创建前明确返回 admission_full，已接收并返回 ID 的请求必须落盘，不能丢弃。幂等回执先于容量判断，同一已接收请求重放不因满载失败。
+
+待执行工作复用已有数据库 outbox，不增加队列服务。每次只派发一个阶段；阶段结束将该实例下一阶段排到已有待办之后，避免单实例长期独占 Worker。wait/blocked 不占 Worker 槽位但仍计入实例接收上限；cancelled/completed/failed 释放实例名额，cancelling 在确认停止前不释放执行槽位。提高全局 Worker 并发不改变实例状态归属，也不等于支持一个实例内的并行分支。
+
+同一实例内仍只允许一个活动工作 Run；同一 Skill 的多个任务在不同实例间可排队/交错推进。一个实例内部 fan-out/join 仍不属于本版。单写者 SQLite 负责短事务提交，不要求所有实例的 Agent 推理串成一个共享状态。
+
+BindingRegistry 的 managed 能力还必须包含 isolated_workspace 与 isolated_context；相同 Skill/模型也不能共用可变会话或单例业务文件。仅把旧 CLI 限制为串行，不能保证它不会读取上一个任务遗留状态；无法提供独立 cwd/配置/会话/输出或显式实例命名空间的适配器不得声明受控隔离能力。
+
+重启时分别恢复所有实例的状态与待办：未派发工作保留原标识继续排队；已开始但未确认结束的 Run 按 §9.3 单独阻塞/核对；A 的异常不能把 B 一并标失败。接收回执、信号幂等记录与产物归属也必须一同恢复。
+
+Inquiry 的研究对象、Web 路由和前端状态也须关联明确的 ExecutionId；两个详情页不能按当前 Skill 名称共用一个“当前任务”变量。轮询、signal 和 cancel 都从目标研究对象解析实例并校验授权。显式授权的跨实例产物复用可登记为新输入，不能因共用 Skill 或内容摘要就隐式读取另一实例的数据。
+
 ## 7 模块：执行入口、CLI 与产物检查
 
 ### 7.1 EntryContract 如何使 Skill 可编排
@@ -307,7 +335,7 @@ Rust 接口使用不同的 ID 类型和生命周期枚举；业务 current_state
 
 ### 8.4 错误与状态检查
 
-稳定错误至少包括 definition_invalid、binding_missing、capability_denied、input_invalid、artifact_invalid、check_unavailable、gate_protocol_invalid、signal_not_allowed、signal_expired、revision_conflict、request_conflict、stale_attempt、limit_reached、interrupted、storage_error。调用错误、工作失败、资料不足和合法部分终点分别表达。
+稳定错误至少包括 definition_invalid、binding_missing、capability_denied、input_invalid、artifact_invalid、check_unavailable、gate_protocol_invalid、signal_not_allowed、signal_expired、revision_conflict、request_conflict、wrong_execution、output_root_mismatch、admission_full、stale_attempt、limit_reached、interrupted、storage_error。调用错误、工作失败、资料不足和合法部分终点分别表达。
 
 get 查询失败不改变实例状态。current_state 从持久化记录读取，不从聊天文本猜测；业务应用可用 revision 做幂等投影，丢事件后重新 get，不与 TaskLoop 争写同一状态。
 
@@ -384,6 +412,7 @@ TaskLoop 保存状态、事件、StateVisit、Task/Run、检查、回执、接�
 | C15 崩溃和升级如何处理 | §9.2–9.3、§10 | 模型旧尝试失效、等待历史恢复、定义漂移拒绝；真实数据库/进程恢复待实现 |
 | C16 如何仍然轻量 | §3.2、§5.2、§8 | 三种平面状态、单写者、枚举选边、同进程 crate，无分布式服务 |
 | C17 Inquiry/TaskLoop/Harness 如何分工 | §2、§6.1、§7 | 对象所有权和调用图，方法/执行/检查/提交的完整链路 |
+| C18 同 Skill 多任务的状态如何隔离和保持 | §6.6、§9.3 | 独立实例/命名空间、交错及双实例执行、错投回调/目录/回执拒绝、取消/信号/预算隔离、排队恢复、SQLite 双连接 CAS 见证 |
 
 ### 11.3 实现验收与测试层级
 
@@ -394,13 +423,14 @@ TaskLoop 保存状态、事件、StateVisit、Task/Run、检查、回执、接�
 | S2.A1 / S2 | 从报告查看资料版本与新一轮补查记录 | 六类领域对象有落地表达；旧报告/快照保留，当前引用版本正确 | Integration + E2E，数据库和字节/引用证据；当前 not_run |
 | S3.A1 / S3 | Inquiry 后端链接实际 Rust crate，加载两类业务定义并调用公开 API | 定义校验、状态/转移、signal、产物读取和绑定契约成立，无业务状态写死在内核 | Integration + Unit，真实 crate/CLI/Harness 才证明接入；当前 not_run |
 | S3.A2 / S3 | 真实执行中在提交/检查/转移/投递边界崩溃，注入取消、旧 Run 回报和等待期限/信号竞态 | 事务/幂等/租约保证一致，旧尝试和过期信号不能推进，已接受产物不丢 | Integration，SQLite/监督进程/实际进程与时钟证据；参考模型不替代，当前 not_run |
-| S4.A1 / S4 | 人工走读 C1–C17 和依赖交付，重跑契约样例 | 每项有明确方案和验证边界，版本/依赖/范围同步，不将设计见证冒充产品完成 | 文档走读 + Unit 设计模型；架构批准仍待人工 |
+| S3.A3 / S3 | 同 Skill 同时提交 A/B，令 A 等待/取消、B 继续，重启并错投 A 回调/目录/回执到 B | 实例、会话、状态、目录、产物、预算和幂等隔离；已接收任务可恢复，容量满明确拒绝；A 不推进或取消 B | Integration + E2E；当前仅参考模型和最小 SQLite CAS 见证通过，真实 Rust/会话/进程测试 not_run |
+| S4.A1 / S4 | 人工走读 C1–C18 和依赖交付，重跑契约样例 | 每项有明确方案和验证边界，版本/依赖/范围同步，不将设计见证冒充产品完成 | 文档走读 + Unit 设计模型；架构批准仍待人工 |
 
 未来主要功能文件为 `.agents/skills/verify-inquiry/features/research-flow.md`（S1）、`sources-and-revisions.md`（S2）、`taskloop-contract.md`（S3）、`contract-boundary.md`（S4）。当前未创建，不能当现有验证证据。所有产品必需项使用 pass/fail/blocked/not_run，不用未执行替代通过。
 
 ### 11.4 参考模型局限
 
-模型只证明显式案例中的离散转移与检查规则。它的 origin/actor 是可信通道标签，并非实际鉴权；恢复使用快照复制而非真实 SQLite，等待时间是显式测试输入而非真实时钟；不证明文件系统 TOCTOU 防护、进程组停止、网络隔离、真实 CLI 兼容、真实定时器竞态、token/费用账或模型语义质量。源码中研究和审阅 gate 是宿主示例实现，通用转移操作不硬编码这些业务名称。产品实现必须补齐 §11.3 的真实证据。
+模型只证明显式案例中的离散转移与检查规则。它的 origin/actor 是可信通道标签，并非实际鉴权；完整实例恢复仍用快照复制，另有真实 SQLite 最小表的双连接 revision 竞争及控制行恢复见证，但不证明完整 Checkpoint/outbox 事务。多实例队列是单 Worker 模型，双实例线程测试只验证各自模型对象，不证明实际 Harness 会话或进程隔离。等待时间是显式测试输入而非真实时钟；不证明文件系统 TOCTOU 防护、进程组停止、网络隔离、真实 CLI 兼容、真实定时器竞态、token/费用账或模型语义质量。源码中研究和审阅 gate 是宿主示例实现，通用转移操作不硬编码这些业务名称。产品实现必须补齐 §11.3 的真实证据。
 
 ## 12 依赖、推进顺序与开放项
 
@@ -413,8 +443,8 @@ Skill 不等于 CLI；Playbook 不由 Markdown 自动推断；业务定义可放
 | 依赖 | 必需交付 | 验收门槛 |
 |---|---|---|
 | D1 契约与模型 | 结构 Schema、研究/第二业务定义、Skill 样例、逐项反例与来源追溯设计 | 本次设计材料与见证模型已形成；人工评审后作为 Rust 实现依据 |
-| D2 TaskLoop Rust 核心 | 定义加载/锁定、三类状态解释、事件/信号、Checkpoint/outbox、限制、产物存取、取消与错误 | 实际 crate 的通用与故障测试；不得只用 reference model 宣称交付 |
-| D3 受控 Harness/CLI 适配 | 有界阶段调用、工具授权、产物收集、真实取消/恢复能力、逻辑 ID 绑定 | 真实二进制/模型版本及隔离测试；不能靠 CLI 名字或能力自报 |
+| D2 TaskLoop Rust 核心 | 定义加载/锁定、三类状态解释、多实例命名空间/接收上限/公平待办、事件/信号、每实例 CAS、Checkpoint/outbox、限制、产物存取、取消与错误 | 实际 crate 的通用、多实例与故障测试；不得只用 reference model 宣称交付 |
+| D3 受控 Harness/CLI 适配 | 有界阶段调用、独立工作目录/会话/配置、工具授权、产物收集、真实取消/恢复能力、逻辑 ID 绑定 | 真实二进制/模型版本及隔离测试；不能靠 CLI 名字或能力自报，也不能只靠串行执行规避串数据 |
 | D4 Inquiry 能力与工具 | 研究 Skill、Playbook、搜索/抓取回执、规范化、领域 gate、UI 与对象投影 | 六阶段真实研究闭环及引用链；检查器语义质量单独评估 |
 | D5 固定依赖接入 | Cargo 完整提交 SHA、锁文件、工具链/Schema/接口兼容说明 | 实际构建和一期 E2E；当前无可用 crate SHA |
 
@@ -434,6 +464,7 @@ Skill 不等于 CLI；Playbook 不由 Markdown 自动推断；业务定义可放
 | ADR-04 | 注册适配器与受信回执，候选/接受分离 | 放弃按命令名推断协议、相信模型填写访问状态或 pass |
 | ADR-05 | 四个实例接口 + 产物只读接口 | 放弃提前冻结三个调用而缺少外部信号与大产物读取 |
 | ADR-06 | 不可变版本、单写者 Checkpoint、fencing 与幂等 | 放弃活动流程热改与 exactly-once 外部副作用承诺 |
+| ADR-07 | Skill 定义只读共享，运行状态和上下文按实例隔离，多实例复用有界 Worker 池 | 放弃按 Skill 名称保存单例状态/目录/会话；默认串行 Worker 不等于只能接收一个实例 |
 
 均为 Proposed，真实评审决定在 Issue 记录，不由设计作者自批。用户确认的技术栈保持不变；完整契约方案本轮提交评审，产品实现尚未开始。
 
