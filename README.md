@@ -14,6 +14,8 @@ Inquiry 围绕研究问题组织资料、证据、判断、结论与报告，根
 
 ## 当前状态
 
-项目初始化阶段，尚未实现产品。下一步讨论最小研究闭环、用户路径和领域模型，再确定首期范围与验收标准。
+项目处于设计阶段，尚未实现产品。当前范围、用户路径和接入契约以 Issue #1 的最小版本设计为准。
+
+一期技术方向已确定为 TypeScript 前端、Rust 后端、TaskLoop Rust crate 直接依赖。最小闭环为上传文本/Markdown、提出问题、单次研究、查看带来源报告；资料不足时由用户补充后重新发起。详细边界与依赖契约见 [Issue #1 最小版本设计](docs/design/1-minimal-research-loop.md)。当前设计仍为 Draft，TaskLoop Rust crate 尚未交付，未完成运行时接入。
 
 术语以 [名词表](docs/glossary.md) 为准。底座设计见 [TaskLoop RFC-0001](https://github.com/xforce-io/taskloop/blob/main/docs/RFC-0001-architecture.md)。

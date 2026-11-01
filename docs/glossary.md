@@ -18,3 +18,7 @@
 | Run | TaskLoop 中叶子 Task 在固定输入与执行配置下的一次执行尝试。 | — |
 | Artifact | TaskLoop 中具有不可变内容摘要、生产来源与访问边界的产物对象。 | — |
 | Event | TaskLoop 中关联执行对象并按游标追加保存的状态或审计记录。 | — |
+| ExecutionId | TaskLoop 一期库接口向 Inquiry 返回并用于查询或取消的不透明执行标识。 | — |
+| ExecutionRequest | Inquiry 提交给 TaskLoop 的问题、资料引用、锁定能力配置及资源限制。 | — |
+| ExecutionSnapshot | TaskLoop 返回的持久化执行状态、结果或错误及其版本快照。 | — |
+| TaskLoopError | TaskLoop 库接口返回的稳定错误码、发生阶段及可重试性信息。 | — |
