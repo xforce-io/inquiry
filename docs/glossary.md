@@ -4,7 +4,7 @@
 |---|---|---|
 | Inquiry | 基于 TaskLoop、以证据推进判断的持续研究应用。 | — |
 | TaskLoop | 为 Inquiry 提供规划、路由、执行、评价与重规划能力的通用任务运行时。 | — |
-| Skill | 以版本化包表达能力方法、输入输出约束与配套资源的资产。 | — |
+| Skill | 以 SKILL.md 为核心向 Agent 提供方法说明与配套资源的版本化能力包，本身不等于 CLI 或可执行状态机。 | — |
 | Schema | 定义领域数据和交换契约的结构规范。 | — |
 | Agent Harness | 承担模型推理、执行会话和工具调用循环的第三方执行框架。 | — |
 | 研究问题 | 用户希望研究回答的问题及其范围、约束与完成标准。 | — |
@@ -18,7 +18,16 @@
 | Run | TaskLoop 中叶子 Task 在固定输入与执行配置下的一次执行尝试。 | — |
 | Artifact | TaskLoop 中具有不可变内容摘要、生产来源与访问边界的产物对象。 | — |
 | Event | TaskLoop 中关联执行对象并按游标追加保存的状态或审计记录。 | — |
-| ExecutionId | TaskLoop 一期库接口向 Inquiry 返回并用于查询或取消的不透明执行标识。 | — |
-| ExecutionRequest | Inquiry 提交给 TaskLoop 的问题、资料引用、锁定能力配置及资源限制。 | — |
-| ExecutionSnapshot | TaskLoop 返回的持久化执行状态、结果或错误及其版本快照。 | — |
+| ExecutionId | TaskLoop 向 Inquiry 返回并用于查询、信号和取消的不透明 FlowInstance 标识。 | — |
+| ExecutionRequest | Inquiry 提交给 TaskLoop 的锁定流程引用、业务输入、授权与资源限制。 | — |
+| ExecutionSnapshot | TaskLoop 返回的实例生命周期、当前流程状态、待处理信号、已接受产物和版本快照。 | — |
 | TaskLoopError | TaskLoop 库接口返回的稳定错误码、发生阶段及可重试性信息。 | — |
+| Playbook | 由业务应用维护、以机器可读形式声明流程状态、执行入口、事件转移和限制的版本化资源。 | — |
+| EntryContract | 声明一次受控任务使用的 Skill、执行器绑定、输入输出及验收规则的版本化执行入口契约。 | — |
+| FlowInstance | TaskLoop 按锁定 Playbook 创建并持久化当前流程状态的执行实例。 | — |
+| StateVisit | FlowInstance 每次进入某个流程状态时创建且不可复用的访问记录。 | — |
+| RunSubmission | 执行适配器提交的候选产物清单及其所属运行、状态访问和契约标识。 | — |
+| CheckResult | 检查器针对指定输入和候选产物产生的验收结论、业务分支结果及证据。 | — |
+| BindingRegistry | 由宿主注册并锁定执行器、工具和检查器实际实现的能力映射。 | — |
+| ArtifactReceipt | 由受信工具宿主记录实际获取或写入事实并关联内容摘要的回执。 | — |
+| Checkpoint | TaskLoop 原子保存已接受产物、检查证据、状态转移及下一步待办的持久化记录。 | — |
