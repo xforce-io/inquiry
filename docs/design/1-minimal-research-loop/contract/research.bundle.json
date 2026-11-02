@@ -4,7 +4,7 @@
     "inquiry.scope": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -27,7 +27,7 @@
     "inquiry.discover": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -58,7 +58,7 @@
     "inquiry.capture": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -95,7 +95,7 @@
     "inquiry.catalogue": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -126,7 +126,7 @@
     "inquiry.analyze": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -162,7 +162,7 @@
     "inquiry.report": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.1.0"
+        "inquiry-deep-research@0.2.0"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {

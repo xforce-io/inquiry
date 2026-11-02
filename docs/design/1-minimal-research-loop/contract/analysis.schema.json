@@ -55,12 +55,49 @@
         "need_more",
         "need_input"
       ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "paragraph": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "artifact_id",
+          "sha256",
+          "paragraph",
+          "quote",
+          "id"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "judgments",
     "gaps",
-    "decision"
+    "decision",
+    "evidence"
   ],
   "additionalProperties": false
 }
