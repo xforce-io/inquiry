@@ -1,19 +1,15 @@
 # Inquiry
 
-以证据推进判断的持续研究应用，基于 [TaskLoop](https://github.com/xforce-io/taskloop) 构建。
+以证据推进判断的研究应用：发现来源、探活留存、整理、证据分析和报告，支持有界补查及用户补充网址。
 
-Inquiry 围绕研究问题组织资料、证据、判断、结论与报告，根据中间结果持续追问、求证和调整研究路径。
+- TypeScript Web + 薄 Rust Web 宿主，直接依赖 TaskLoop Rust crate。
+- Inquiry 拥有研究 Skill、业务 Playbook/Schema、工具获取事实与研究质量 gate。
+- TaskLoop 封装执行、状态、产物接受、隔离与故障处理；Inquiry 不读取其表、控制 Worker 或另建执行状态机。
+- 一期一研究对应一个公开 ExecutionId，从原始输入和已接受产物构建展示，不增加独立业务状态数据库。
 
-## 项目边界
+设计入口：[Issue #1](https://github.com/xforce-io/inquiry/issues/1)、[L2 v0.5.0](docs/design/1-minimal-research-loop.md)、[领域资源](docs/design/1-minimal-research-loop/contract/)、[设计复核](docs/design/1-minimal-research-loop/review.md)。通用契约仅认 [TaskLoop Issue #2](https://github.com/xforce-io/taskloop/issues/2)，不在本仓库复制。
 
-- Inquiry 提供研究交互、研究 Skills、领域 Schema 与研究质量规则。
-- TaskLoop 提供通用任务规划、路由、执行、评价、重规划及持久化机制。
-- 实际推理与工具调用复用第三方 Agent Harness。
+当前只有 Draft 设计与领域见证，无产品实现或已接入的 TaskLoop crate。真实 Rust/Harness、页面和研究质量验收待执行；设计提交不可当作可用依赖版本。术语见[名词表](docs/glossary.md)。
 
-研究 Skills 首期随本仓库维护并保持独立包边界。TaskLoop 的具体依赖版本与接入方式待产品设计后确定，当前尚未接入运行时。
 
-## 当前状态
-
-项目初始化阶段，尚未实现产品。下一步讨论最小研究闭环、用户路径和领域模型，再确定首期范围与验收标准。
-
-术语以 [名词表](docs/glossary.md) 为准。底座设计见 [TaskLoop RFC-0001](https://github.com/xforce-io/taskloop/blob/main/docs/RFC-0001-architecture.md)。
+实现工作跟踪 [Issue #2](https://github.com/xforce-io/inquiry/issues/2)，[实现前草案与实验预登记](docs/design/2-research-web-mvp.md)已准备。当前未实现 Web/后端，TaskLoop 交付门禁仍未完成，不能把设计见证当产品验证。
