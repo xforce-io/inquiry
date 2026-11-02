@@ -2,14 +2,17 @@
 
 | 项目 | 内容 |
 |---|---|
-| 版本 | v0.4.2，2026-11-01 |
+| 版本 | v0.4.3，2026-11-02 |
 | 状态 | Draft，完整基础契约方案；未自签架构批准，未实现生产运行时 |
 | 需求 | [Inquiry Issue #1](https://github.com/xforce-io/inquiry/issues/1)，S1–S4 |
+| L1 基线 | [原评论中的 L1 v0.4.3](https://github.com/xforce-io/inquiry/issues/1#issuecomment-6555157047)：薄 Web 宿主、被加载的 Skill 包、一期无独立 Planner |
 | 技术基线 | TypeScript 前端、Inquiry Rust 后端、TaskLoop Rust crate 同进程直接依赖 |
 | 术语 | [名词表](../glossary.md) |
 | 事实源 | 本文件为详细设计；机器可读实例及验证样例见同号 [contract 目录](1-minimal-research-loop/contract/) |
 
 本次交付是设计与契约见证，尚未实现应用或 TaskLoop Rust 运行时。建议先评审 §3 一期范围、§6 分层与状态控制权、§7–8 执行与检查契约、§12 接入门槛；完整修订由 Git 历史保留。
+
+本轮 L1: reuse v0.4.3；L2: write v0.4.3。沿用用户已确认的 Rust 后端、crate 直连、TypeScript 前端和本轮 Skill/宿主分工，不增加产品入口或执行机制。新增契约说明集中在 §5.3、§6.1/6.7、§7.6 和 §8.5；本文件仍为唯一详细设计事实源。
 
 ## 1 背景与依据
 
@@ -23,7 +26,7 @@
 - [W3C SCXML](https://www.w3.org/TR/scxml/)说明状态、事件、条件和目标状态的通用关系；本文采用一个更小的有界配置模型，**不宣称 SCXML 兼容**，不实现其完整语言。
 - [JSON Schema 2020-12 验证规范](https://json-schema.org/draft/2020-12/json-schema-validation)用于结构检查；本文额外定义文件、回执、业务关系和语义评价，不能把 JSON 形状正确当事实真实。
 
-TaskLoop 当前仅有 RFC 基线提交 `fbe3c87e8f8614b7098ffe4d710040f572a3e833`，没有可构建的 Rust crate。本稿所有 Rust 接口都是依赖契约提案，不是现有 SDK。
+已核对的 TaskLoop RFC 基线为提交 `fbe3c87e8f8614b7098ffe4d710040f572a3e833`，该基线没有可构建的 Rust crate。本稿所有 Rust 接口都是依赖契约提案，不是现有 SDK；实际接入版本按 §12 验证后固定。
 
 ## 2 核心定义与所有权
 
@@ -35,6 +38,7 @@ TaskLoop 当前仅有 RFC 基线提交 `fbe3c87e8f8614b7098ffe4d710040f572a3e833
 | EntryContract | 业务应用 | TaskLoop 和适配器 | 一次任务的目标、Skill 引用、输入、输出、检查器与允许结果；不含任意 shell 命令或数据库写权限 |
 | Playbook | 业务应用 | TaskLoop | 初始状态、状态类型、执行入口、允许转移、等待信号、终点和限制 |
 | BindingRegistry | 宿主操作者/应用代码 | TaskLoop Worker | 将逻辑 ID 绑定到已安装的 Harness、CLI、工具和检查器；Skill 无权自行注册或提权 |
+| Web 宿主 | Inquiry | 浏览器；内嵌的 TaskLoop crate | HTTP 接入、用户授权、研究对象关联与展示投影；不另写研究流程状态机 |
 | FlowInstance | TaskLoop 创建 | TaskLoop；Inquiry 只读投影 | 锁定定义、当前状态、访问记录、事件与检查结果；唯一执行状态事实源 |
 | 研究对象 | Inquiry | Inquiry 服务及界面 | 问题、资料、证据、判断、结论和报告关系；不复制一套可独立写入的执行状态 |
 
@@ -56,11 +60,17 @@ Playbook 可以作为 Skill 的附加资源，也可以独立存于业务应用�
 
 一期只需平面状态机：`work / wait / terminal` 三种状态、每实例单活动 Run、多个实例独立排队、命名事件、枚举结果选边、有限回环、SQLite 事务和本地不可变产物。条件不支持任意脚本表达式，复杂领域条件由注册检查器计算成有限结果。也不引入独立服务、网络队列或跨语言 FFI。
 
+一期不设独立 Planner。scope 阶段产出的 plan 是研究内容产物，执行它的仍是普通 Worker/Agent；不是另一个能调度全局任务的组件。Agent 可以规划当前阶段的检索/分析动作；Runtime 只按锁定 Playbook 派发阶段与选边。Router 在一期仅是 executor 到固定 Harness/模型配置的静态绑定，不新增模型选择服务。
+
 自动重检、执行中断后原位续跑、动态插件安装、嵌套/并行状态、任意工作流 DSL、自动修改状态图、热迁移活动定义、跨服务分布式事务和自动学习路由不属于本版。模型可以在已声明边内建议补查；不能凭返回一个 next_state 创造新状态或重写验收。以后需要图外重规划，必须形成新定义/新实例或经过独立设计，不能暗中扩权。
 
 ## 4 Inquiry 研究闭环与用户路径
 
-### 4.1 阶段、产物与结果
+### 4.1 能力与 UI/UX
+
+一期只有创建页和研究详情页。创建页提供问题、可选种子网址、范围与资源限制确认，校验错误就地显示并保留输入。详情页顶部展示实际生命周期、当前阶段和停止入口；主体按六阶段展示已接受产物，选中阶段后查看清单/正文与检查摘要；报告中的引用可打开对应保存版本。等待时展示缺口和补充网址表单，阻塞时展示原因及取消入口；系统不会用尚未通过门禁的候选替换正式阶段结果。加载、空、错误、等待、取消中及终点反馈沿用 §4.2–4.3；不增加 Skill 安装管理或流程图编辑界面。
+
+阶段、产物与结果如下：
 
 | work 状态 | 本阶段任务 | 必需产物 | 领域结果及下一状态 |
 |---|---|---|---|
@@ -89,7 +99,7 @@ flowchart TD
   G -- 授权内补查且有预算 --> C
   G -- 需要用户补充 --> I[等待补充来源网址]
   I -- 补充来源且目标/权限未变 --> C
-  I -- 等待到期 --> J[部分结果及未完成原因]
+  I -- 等待到期 --> J[保留已有结果，显示实际终点或阻塞原因]
   C -- 停止或系统错误 --> J
   D -- 停止或系统错误 --> J
   F -- 停止或系统错误 --> J
@@ -131,46 +141,93 @@ flowchart TD
 | 产物只读接口与状态查询分开 | 不在每次轮询返回整个资料集 | 增加 read_artifact；放弃把大文件塞进 get 快照 |
 | 受信工具回执与候选文件分离 | Agent 不能编造抓取事实 | 工具宿主需要留账；单纯文件存在不能证明获取真实性 |
 
+### 5.3 分发文件、安装与定义加载
+
+Inquiry 的研究能力以 Skill 方法及附加机器资源交付；它不是一个主动请求 TaskLoop 的服务。宿主只安装一份只读方法包，多个实例和 Worker 复用已锁定字节。工作目录、会话和产物属于各自 Run，不写入安装目录。
+
+本仓库样例的实际布局如下；机器资源目前位于方法目录之外，这种组织已经足够，不为一期增加打包格式或安装器：
+
+```text
+contract/
+├── research.bundle.json                  # Playbook 与 EntryContract
+├── *.schema.json                        # 锁定的本地 Schema
+├── registry.example.json                # 宿主绑定示例，不是包的授权文件
+└── skills/inquiry-deep-research/
+    └── SKILL.md                         # Agent 方法，版本与树摘要在注册绑定中
+```
+
+宿主发布时一起固定这些资源；未来可把机器资源放进 Skill 附件目录，消费者和控制权不随文件位置改变。标准 SKILL.md 不必新增强制字段，普通 Skill 也不必带 Playbook。真实工具和 gate 可以随应用编译或以受控程序提供，必须由宿主注册；包中出现代码文件不等于获准执行。
+
+定义加载是 Runtime 的本地准备操作，不调用模型，不启动 Worker，也不运行包中的安装脚本：
+
+| 输入/步骤 | 契约与结果 |
+|---|---|
+| 宿主指定定义 | 从应用静态配置提供 research.bundle 与 Schema 根目录；先验证并取得 definition_digest，再供 start 引用。浏览器/Agent 不能传任意本地路径或远程包地址 |
+| 解析机器定义 | 拒绝重复键、未支持版本/字段、非法引用、无终点及无界图；规则沿用 §6.3、§9.2 |
+| 解析所需实现与方法 | Entry 的 executor/tools/gate 在 BindingRegistry 中解析；skills 的逻辑 ID 解析成只读包、版本及内容摘要，Schema 仅从锁定本地文件读取 |
+| 锁定运行定义 | 保存完整定义、依赖摘要和所需资源字节或不可变位置；仅保存哈希却允许原文件被替换，不构成可恢复的锁定 |
+| 成功/失败 | 成功得到可供实例引用的锁定定义；失败返回 definition_invalid、binding_missing 或 capability_denied，不派发研究任务；存储错误拒绝启动，不返回虚假的已接收实例 |
+
+start 的授权仍需校验调用者允许使用该 definition_digest；配置可加载不等于该用户可执行。加载完成也不等于研究成功，必须经过后续阶段与门禁。
+
 ## 6 架构、状态与转移规则
 
-### 6.1 分工与数据流
+### 6.1 分层、部署与调用关系
+
+七层是职责分层，不是七个服务或七个必须创建的库。Web 宿主是一个 Rust 进程，其中以 crate 直接调用 TaskLoop；Harness 可以是被监督的子进程或 SDK，实际形式由 D0 探针确定。Skill 包是被读取的资源，不属于运行时调用方。
+
+| 层 | 职责与一期形式 | 归属与边界 |
+|---|---|---|
+| L7 界面 | Inquiry TypeScript Web，展示阶段、产物和操作入口 | Inquiry；不持有流程写权限 |
+| L6 应用接入 | 薄 Rust Web 宿主的 HTTP 接入、授权、研究对象关联和投影 | Inquiry；同进程调用 crate，不复制阶段调度逻辑 |
+| L5 执行控制 | 定义加载、Runtime 状态/限制、通用检查和固定路由 | TaskLoop；领域 gate 由 Inquiry 提供，状态只由 Runtime 提交 |
+| L4 执行适配 | Worker 与 Adapter，有界调用、上下文准备、收集、取消 | TaskLoop 通用边界，具体 Harness 适配实现由宿主注册 |
+| L3 Agent 执行 | Harness 中的 Agent 读取 Skill、规划当前阶段、使用获准工具 | 第三方 Harness；一期无独立 Planner |
+| L2 工具能力 | 搜索、抓取、内容规范化、产物读写及受信回执 | Inquiry/宿主实现，TaskLoop 提供授权边界；不由 Skill 自授权限 |
+| L1 数据 | 一个 SQLite 文件、一个本地产物目录 | 模块各自拥有表；TaskLoop 保存执行事实，Inquiry 保存领域关联 |
+
+下图中实线表示运行调用、结果提交或事实回传；虚线表示读取静态资源。分层表定义职责，图定义实际数据流，均不表示 Skill 主动调用 Runtime。
 
 ```mermaid
 flowchart TB
-  UI[Inquiry TypeScript 前端]
-  APP[Inquiry Rust 应用：研究对象、权限入口与界面投影]
-  PKG[Inquiry：Skill、EntryContract、Playbook、Schema、检查器]
-  subgraph TL[同进程 TaskLoop crate]
-    LOAD[加载、校验与锁定定义]
-    RT[Runtime：当前状态、事件、转移、限制]
-    WK[Worker 与 Harness/CLI Adapter]
-    CK[检查管线与注册检查器调用]
-    DB[(实例、事件、回执、产物与 Checkpoint)]
-    LOAD --> RT
-    RT -->|仅执行当前入口| WK
-    WK -->|候选提交| CK
-    CK -->|可信检查结果| RT
-    RT --> DB
-    CK --> DB
+  WEB["L7 Inquiry Web"]
+  subgraph HOST["一个 Rust Web 宿主进程"]
+    API["L6 HTTP、授权与研究对象投影"]
+    subgraph TL["内嵌 TaskLoop crate"]
+      RT["L5 Runtime：加载、派发、限制、状态提交"]
+      WK["L4 Worker / Adapter"]
+      CK["L5 通用检查与宿主注册的领域 gate"]
+      RT -->|"仅派发当前入口"| WK
+      WK -->|"候选清单"| CK
+      CK -->|"检查结论与 outcome"| RT
+    end
+    API -->|"同进程 crate 调用"| RT
   end
-  H[第三方 Harness：Agent 读取当前 Skill 并调用工具]
-  TOOL[注册工具宿主：搜索、抓取、原始/文本快照]
-  UI --> APP
-  APP -->|启动、查询、信号、取消、产物读取| RT
-  PKG --> LOAD
-  PKG --> CK
-  WK --> H
-  H --> TOOL
-  TOOL -->|受信事实回执| DB
+  subgraph PKG["Inquiry Skill 与附加资源：只读"]
+    METHOD["SKILL.md 与方法资源"]
+    DEF["Playbook、EntryContract、Schema"]
+  end
+  H["L3 Agent Harness：当前阶段 Agent"]
+  TOOL["L2 搜索、抓取与产物工具"]
+  DB[("L1 SQLite 与不可变产物目录")]
+  WEB -->|"HTTP"| API
+  RT -.->|"读取、校验并锁定定义"| DEF
+  H -.->|"按入口提供并读取方法"| METHOD
+  WK -->|"受控阶段调用"| H
+  H -->|"阶段结束与候选文件"| WK
+  H -->|"获准工具调用"| TOOL
+  TOOL -->|"受信回执"| RT
+  RT -->|"执行事实"| DB
+  API -->|"仅写领域关联/投影"| DB
 ```
 
-与七层对应：L7 为 Inquiry UI；L6 为 Web 应用服务到 crate 的公开接口；L5 为通用状态推进、限制、检查和固定路由；L4 为 Worker/Adapter；L3 为第三方 Harness；L2 为受控工具动作；L1 为领域关系与通用实例/产物存储。Inquiry 提供研究语义和定义；TaskLoop 是执行控制唯一写入者。原 RFC 的 Decision 在本版落实为受约束的领域结果求值，不让模型直接写状态或临时修改图。
+原 RFC 的 Decision 在本版落实为 gate 的受约束领域结果求值；Router 落实为固定 executor 绑定。两者是职责，不要求建立独立服务或另一个 Agent。Inquiry 的研究方法在 Skill，流程定义在 Playbook，宿主工具/gate 负责真实 I/O 与可执行检查；不能把这些原生能力都误称为 Markdown 会自行执行。
 
 ### 6.2 三类状态分别保存
 
 | 状态 | 示例 | 事实源与写权限 |
 |---|---|---|
-| 业务对象状态 | 报告草稿、已发布、归档 | Inquiry 数据；Inquiry 应用服务写入 |
+| 业务对象状态 | 研究对象关联正在创建、关联已就绪；报告发布/归档为后续示例 | Inquiry 数据；Web 宿主只维护关联/展示，不据此改写执行状态；一期不增加发布/归档流程 |
 | 流程状态 | discover、capture、await_sources | 锁定 Playbook 定义；TaskLoop FlowInstance.current_state 写入 |
 | 技术生命周期 | running、waiting、blocked、cancelling、completed、failed、cancelled | TaskLoop 内置状态机；Runtime 写入 |
 
@@ -237,6 +294,43 @@ BindingRegistry 的 managed 能力还必须包含 isolated_workspace 与 isolate
 
 Inquiry 的研究对象、Web 路由和前端状态也须关联明确的 ExecutionId；两个详情页不能按当前 Skill 名称共用一个“当前任务”变量。轮询、signal 和 cancel 都从目标研究对象解析实例并校验授权。显式授权的跨实例产物复用未来可登记为新输入，一期不提供该入口；不能因共用 Skill 或内容摘要就隐式读取另一实例的数据。
 
+### 6.7 主路径与失败路径时序
+
+```mermaid
+sequenceDiagram
+  actor U as 用户
+  participant W as Web 宿主
+  participant R as TaskLoop Runtime
+  participant P as 锁定的定义与 Skill 资源
+  participant A as Worker / Harness
+  participant T as 工具宿主
+  participant G as 通用检查 / 领域 gate
+  U->>W: 提问并确认范围/限制
+  W->>R: start(定义摘要、输入、授权、幂等键)
+  R->>P: 校验定义闭包与依赖锁（不调用模型）
+  R-->>W: 实例落盘后返回 ExecutionId
+  W-->>U: 已受理，可查看进度
+  R->>A: 派发当前入口及 Run 专属上下文
+  A->>P: 只读获取本入口所需方法
+  A->>T: 授权内搜索/抓取与写候选
+  T-->>R: 独立受信获取回执
+  A-->>R: 有界调用结束，适配器提交候选清单
+  R->>G: 固定字节、Schema、回执与领域检查
+  alt pass 且 outcome 已声明
+    G-->>R: CheckResult 与可解析证据
+    R->>R: 原子提交产物引用/状态/下一步待办
+    R-->>W: 查询可见的新 revision 和阶段
+  else fail 或可判定候选不合格
+    G-->>R: 违规原因
+    R->>R: 按 rejected 边提交
+  else 检查不可用、存储异常或执行中断
+    R->>R: 保留阶段并 blocked，不派发后续工作
+    R-->>W: 阻塞原因、已接受产物、允许取消
+  end
+```
+
+正常阶段由 Runtime 逐次执行；need_more 走已声明回环，need_input 进入 wait，用户 signal 的校验/去重沿用 §8.2。取消和错误处理沿用 §8.3/§9.3。图中的资源读取、工具调用与检查都不赋予 Skill 运行时数据库写权限。
+
 ## 7 模块：执行入口、CLI 与产物检查
 
 ### 7.1 EntryContract 如何使 Skill 可编排
@@ -264,7 +358,7 @@ TaskLoop 在派发前创建 Run 专属 staging 目录并给出固定槽位/附�
 
 统一 [RunSubmission Schema](1-minimal-research-loop/contract/submission.schema.json)包含 protocol_version、execution_id、task_id、run_id、state_id、visit、contract_digest、run_epoch、artifacts(slot/path)。这些标识由宿主适配上下文填写和核对，来自受限通道，不靠请求体自称 origin=runtime 判断权限。执行结束/失败来自 Worker 监督结果，不由候选 JSON 自行认证；RunSubmission 不是对所有原生 CLI stdout 的格式要求，也不是可以直接推进状态的事件。
 
-Worker/工具宿主没有实例数据库写凭据；只可提交候选。TaskLoop 拒绝绝对路径、路径逃逸、软链、重复槽位、缺失文件和未声明输出。读取时按目录句柄安全打开、限制大小，固定所校验的字节，再复制/原子落入不可变存储；不能先校验一个文件再接受被 Agent 替换的另一份内容。
+Runtime 只给 Worker 候选提交和受限工具句柄，不提供实例仓储写接口；Harness 子进程不得获得数据库写入口或挂载实例数据库。同进程原生宿主代码属于可信基，模块分工不能防御任意恶意原生代码。TaskLoop 拒绝绝对路径、路径逃逸、软链、重复槽位、缺失文件和未声明输出。读取时按目录句柄安全打开、限制大小，固定所校验的字节，再复制/原子落入不可变存储；不能先校验一个文件再接受被 Agent 替换的另一份内容。
 
 ### 7.4 四层检查与来源真实性
 
@@ -292,6 +386,25 @@ Worker/工具宿主没有实例数据库写凭据；只可提交候选。TaskLoo
 Runtime 在每次检查前创建绑定 Run、契约摘要、检查器版本及候选字节摘要的调用记录。evidence_refs 必须解析到本次授权范围内真实存在的检查记录、受信回执或已接受产物；不能只检查字符串非空。模型/检查器随意填写一个 proof ID 不构成证据，检查结果与其调用上下文一起不可变留存。
 
 需要模型评价时，由 TaskLoop 执行独立的受限检查工作并记录成本/版本，生成者的自评不能冒充独立审阅。若策略要求人工判断，进入声明的 wait 或保持检查阻塞，不能在缺判断时自动通过。领域评价器是可信扩展代码，能够给出错误业务判断；契约保证其身份、输入、证据和控制边界，不宣称解决所有语义正确性。
+
+### 7.6 Worker 如何给 Agent 提供 Skill 与本阶段上下文
+
+这是宿主到适配器的内部调用契约，不新增公开 API 或第二套 JSON 提交协议。现有 task-input Schema 只表达业务输入和可读取事实 ID；以下宿主控制项不混入可由 Agent 编辑的业务 payload。
+
+| 上下文 | 产生者与传递方式 | 必需约束 |
+|---|---|---|
+| 当前入口 | Runtime 从锁定 EntryContract 取 instruction、state/visit、执行器、工具与输出要求 | 不能由 Agent 换成另一入口，不能提前授权后续阶段 |
+| 执行身份 | Runtime 绑定 ExecutionId、Task/Run、run_epoch、定义摘要 | Adapter 填写提交关联，Worker 不从模型文本采信身份 |
+| 方法资源 | Worker 解析当前 Entry 的 skills，通过只读挂载或 Harness 等效资源 API 提供锁定包 | 安装目录不作为 cwd；不能隐式加载上一个实例的会话、用户全局可变 Skill 或未锁定版本。仅验证包存在不证明 Agent 已得到它 |
+| 当前输入 | Runtime 生成 flow_input、已接受 input_artifact_ids 和 signal_fact_ids；宿主提供受限读取 | Agent 可通过授权的 artifact.read 取得确切字节；信号事实经实例范围的只读上下文提供。只给不可解析的 ID 不算完成输入交接 |
+| 工作与输出 | 每 Run 独立 cwd、staging、会话和配置；提供声明的输出槽位与 Schema | 仅候选可写；已接受产物、定义、回执账与实例表不可写。禁止宿主全盘挂载或复制凭据 |
+| 资源与停止 | 固定模型配置、有效时间/调用/大小上限，以及宿主停止控制 | 限制由宿主执行；模型自称未超预算不构成证据 |
+
+Adapter 可以利用 Harness 原生 Skill 加载，也可以通过等效资源读取方式提供方法；必须在 D0 证明相同的输入可见性、版本固定、隔离和权限边界，不要求某个固定 CLI 参数名。若工具可访问方法包脚本，也仍须逐项注册/授权；可读脚本不等于允许任意执行。
+
+阶段完成以监督到的有界调用结束和实际产物为准，由 Adapter 生成 RunSubmission；模型文本“完成”不是结束回执。独立方法包可以包含整个研究方法，但当前入口的授权和输出约束只能覆盖当前阶段，Harness 不得在门禁之前自动串行运行后续阶段。
+
+只读目录隔离不能限制任意恶意原生进程；适配器必须提供所声明的工具/文件访问边界。若所选 Harness 只提供提示词约束却不能落实这些边界，D0 判定不满足受控适配，不能以包已安装为由继续宣称阶段受控。具体隔离技术由探针决定，本稿不预建容器平台。
 
 ## 8 crate 接口、信号与身份
 
@@ -334,6 +447,24 @@ Rust 接口使用不同的 ID 类型和生命周期枚举；业务 current_state
 稳定错误至少包括 definition_invalid、binding_missing、capability_denied、input_invalid、artifact_invalid、check_unavailable、gate_protocol_invalid、signal_not_allowed、signal_expired、revision_conflict、request_conflict、wrong_execution、output_root_mismatch、admission_full、stale_attempt、limit_reached、interrupted、storage_error。调用错误、工作失败、资料不足和合法部分终点分别表达。
 
 get 查询失败不改变实例状态。current_state 从持久化记录读取，不从聊天文本猜测；业务应用可用 revision 做幂等投影，丢事件后重新 get，不与 TaskLoop 争写同一状态。
+
+### 8.5 Web 宿主如何衔接 crate
+
+宿主不对外暴露 TaskLoop 的注册表、定义文件路径或数据库。浏览器操作研究对象，宿主检查归属并解析 ExecutionId，再调用 §8.1 的同进程接口。HTTP 是 Inquiry 的应用接入，不是新增一个 TaskLoop 网络服务。路由约定如下，数据字段复用对应 Schema，不另造领域状态枚举：
+
+| Inquiry HTTP 接口 | 宿主输入/输出与 crate 对应 |
+|---|---|
+| POST /api/research | 请求体为 request_key、inputs、可选 limits；inputs 严格对应 research-input 的 question、seed_urls（可为空）、scope。宿主选择已配置定义/grant_ref 并补齐有效 limits 后调用 start；返回研究对象标识、ExecutionId 和可查询地址 |
+| GET /api/research/{id} | 校验研究对象归属，调用 get，返回业务关联与 ExecutionSnapshot；界面显示 current_state/lifecycle/revision，不从报告文本反推执行状态 |
+| POST /api/research/{id}/sources | 请求体为 payload、request_key、expected_revision；仅 payload 按 sources-added 校验。固定映射为 sources.added 的 signal，不接受任意 event_name、target_state 或定义替换 |
+| POST /api/research/{id}/cancel | 输入 request_key；调用 cancel，返回实际快照；HTTP 受理停止不等于进程已经停止 |
+| GET /api/research/{id}/artifacts/{artifact_id} | 校验对象与产物归属后调用 read_artifact；返回固定内容和摘要，不提供任意路径下载 |
+
+启动使用持久化关联：宿主先记录调用者、研究对象标识、request_key 与请求摘要，再以相同键调用 start，并补齐 ExecutionId。只有关联持久化后才返回创建成功。若在这两步之间崩溃，重试/重启完成原 pending 关联，通过 start 幂等取得原实例，不重建第二次研究；存在性未知时显示正在创建/可重试错误，不能伪造执行失败。这是同一 SQLite 内的接入恢复，不增加跨库补偿服务或另一套流程状态机。
+
+输入非法返回 400，未授权/对象不可访问按宿主访问策略拒绝；revision 或幂等内容冲突返回 409；容量已满返回 429；暂时存储/查询不可用返回 503。错误保留稳定 TaskLoopError 原因码，不能把调用错误渲染成研究成功或部分报告。相同 request_key 重试先返回原回执，不能因当前容量已满就拒绝既有实例；查询错误不改变实例。
+
+前端一期轮询 GET 获取进展，按 revision 更新；只有读到 waiting 且允许 sources.added 时展示补充入口，只有实际取消确认后展示 cancelled。不增加 WebSocket、消息总线或单独订阅服务。界面与主路径沿用 §4.2，薄宿主不会自行把 discover 推到 capture。
 
 ## 9 边界：可靠性、版本与安全
 
@@ -397,7 +528,7 @@ get 查询失败不改变实例状态。current_state 从持久化记录读取�
 
 | 要求 | 规范依据 | 已有设计见证 |
 |---|---|---|
-| C1 Skill 到底是什么 | §2、§5.1 | 两个标准 SKILL.md、注册包版本/摘要校验 |
+| C1 Skill 到底是什么 | §2、§5.1/5.3、§7.6 | 两个标准 SKILL.md、注册包版本/摘要校验；实际方法挂载/读取仍需真实 Harness 验证 |
 | C2 流程放在哪、谁控制 | §5–6 | research.bundle 的状态表与通用推进模型 |
 | C3 不同业务如何定义状态 | §6.2–6.3 | research 与 document-review 使用同一引擎，不同定义/检查器 |
 | C4 初始、终态、转移如何定义 | §6.3–6.4 | 缺目标、缺分支、终态有出边、不可达状态等反例 |
@@ -413,7 +544,7 @@ get 查询失败不改变实例状态。current_state 从持久化记录读取�
 | C14 重复、迟到、取消竞态 | §6.5、§9.3 | 重复提交不二次推进、不同重放冲突、取消/完成的两种先后 |
 | C15 崩溃和升级如何处理 | §9.2–9.3、§10 | 模型旧尝试失效、等待历史恢复、定义漂移拒绝；真实数据库/进程恢复待实现 |
 | C16 如何仍然轻量 | §3.2、§5.2、§8 | 三种平面状态、单写者、枚举选边、同进程 crate，无分布式服务 |
-| C17 Inquiry/TaskLoop/Harness 如何分工 | §2、§6.1、§7 | 对象所有权和调用图，方法/执行/检查/提交的完整链路 |
+| C17 Inquiry/TaskLoop/Harness 如何分工 | §2、§6.1/6.7、§7.6、§8.5 | 七层职责、静态读取与运行调用分图义、薄宿主到 crate 的映射；无独立 Planner，Skill 不是调用方；真实挂载/接入尚未验证 |
 | C18 同 Skill 多任务的状态如何隔离和保持 | §6.6、§9.3 | 独立实例/命名空间、交错及双实例执行、错投回调/目录/回执拒绝、取消/信号/预算隔离、排队恢复、SQLite 双连接 CAS 见证 |
 
 ### 11.3 实现验收与测试层级
@@ -423,9 +554,11 @@ get 查询失败不改变实例状态。current_state 从持久化记录读取�
 | S1.A1 / S1 | 配置真实搜索/抓取/Harness，从 Inquiry Web 提问并确认范围 | 用户能查看提纲、来源清单、访问/快照、分类、证据和报告；引用回溯到保存版本 | E2E，真实服务与页面/产物证据；当前 not_run |
 | S1.A2 / S1 | 注入覆盖缺口、用户补来源、访问失败和停止 | 声明的回环/等待/部分终点生效，取消后无下一阶段；失败来源不伪装成功 | E2E，fixture 复现边界，真实停止另验；当前 not_run |
 | S2.A1 / S2 | 从报告查看资料版本与新一轮补查记录 | 六类领域对象有落地表达；旧报告/快照保留，当前引用版本正确 | Integration + E2E，数据库和字节/引用证据；当前 not_run |
-| S3.A1 / S3 | Inquiry 后端链接实际 Rust crate，加载两类业务定义并调用公开 API | 定义校验、状态/转移、signal、产物读取和绑定契约成立，无业务状态写死在内核 | Integration + Unit，真实 crate/CLI/Harness 才证明接入；当前 not_run |
+| S3.A1 / S3 | Web 宿主链接实际 Rust crate；研究定义接真实 Harness，第二业务定义可用测试执行器；调用公开 API | 定义校验、状态/转移、signal、产物读取和绑定契约成立，无业务状态写死在内核；不要求交付第二个产品或 CLI | Integration + Unit，研究接入以真实 crate/Harness 为准，第二定义仅证明通用推进；当前 not_run |
 | S3.A2 / S3 | 真实执行中在提交/检查/转移/投递边界崩溃，注入取消、旧 Run 回报和等待期限/信号竞态 | 事务/幂等/执行代数保证一致，旧尝试和过期信号不能推进，已接受产物不丢 | Integration，SQLite/监督进程/实际进程与时钟证据；参考模型不替代，当前 not_run |
 | S3.A3 / S3 | 同 Skill 同时提交 A/B，令 A 等待/取消、B 继续，重启并错投 A 回调/目录/回执到 B | 实例、会话、状态、目录、产物、预算和幂等隔离；已接收任务可恢复，容量满明确拒绝；A 不推进或取消 B | Integration + E2E；当前仅参考模型和最小 SQLite CAS 见证通过，真实 Rust/会话/进程测试 not_run |
+| S3.A4 / S3 | 宿主显式加载定义，使用真实 Harness 执行当前入口；更新安装包、移除锁定资源、缺失挂载、注入全局会话及未声明工具 | 定义加载本身不调用模型；当前 Agent 能读确切锁定 Skill 和授权输入字节；活动实例继续读取旧锁定内容，无法取得时拒绝执行，不静默换版、不读取别的实例、不提前运行后续阶段 | Integration；模型只证明定义/摘要检查，真实加载、挂载、可见性和权限边界 not_run；属于 D0 必需证据 |
+| S3.A5 / S3 | 浏览器经薄宿主调用启动/查询/补来源/取消/产物接口；在 start 已落盘但研究关联未补齐时中断，再以同键重试 | 同一研究关联仍指向原实例；等待/阻塞/取消中如实展示；越权/任意事件/路径拒绝，旧 revision 返回冲突，查询错误不改变执行状态 | Integration + E2E；真实 HTTP/SQLite/crate not_run，不以直接调用模型函数代替 |
 | S4.A1 / S4 | 人工走读 C1–C18 和依赖交付，重跑契约样例 | 每项有明确方案和验证边界，版本/依赖/范围同步，不将设计见证冒充产品完成 | 文档走读 + Unit 设计模型；架构批准仍待人工 |
 
 未来主要功能文件为 `.agents/skills/verify-inquiry/features/research-flow.md`（S1）、`sources-and-revisions.md`（S2）、`taskloop-contract.md`（S3）、`contract-boundary.md`（S4）。当前未创建，不能当现有验证证据。所有产品必需项使用 pass/fail/blocked/not_run，不用未执行替代通过。
@@ -438,17 +571,17 @@ get 查询失败不改变实例状态。current_state 从持久化记录读取�
 
 ### 12.1 在实现前已经决定的边界
 
-Skill 不等于 CLI；Playbook 不由 Markdown 自动推断；业务定义可放 Skill 资源或应用中但必须显式锁定；TaskLoop 唯一提交流程状态；适配器提交候选，检查器提交有证据的结论；普通用户只能提交声明的信号，Agent 不能拥有控制通道；领域对象状态继续归 Inquiry。这些不是留给实现者随手选择的开放问题。
+Skill 不等于 CLI；Playbook 不由 Markdown 自动推断；业务定义可放 Skill 资源或应用中但必须显式锁定；TaskLoop 唯一提交流程状态；适配器提交候选，检查器提交有证据的结论；普通用户只能提交声明的信号，Agent 不能拥有控制通道；领域对象状态继续归 Inquiry。Web 宿主只负责 HTTP/授权/关联，不复制研究流程；Skill 包是被读取资源；一期没有独立 Planner。这些不是留给实现者随手选择的开放问题。
 
 ### 12.2 最小依赖交付
 
 | 依赖 | 必需交付 | 验收门槛 |
 |---|---|---|
 | D1 契约与模型 | 结构 Schema、研究/第二业务定义、Skill 样例、逐项反例与来源追溯设计 | 本次设计材料与见证模型已形成；人工评审后作为 Rust 实现依据 |
-| D0 真实 Harness 能力探针 | 一个阶段、一个真实工具调用/受信回执、候选文件提交/检查、取消，以及同 Skill A/B 的目录/会话隔离 | 所选版本实际执行通过；缺能力先换适配方案，不先建设完整运行时 |
+| D0 真实 Harness 能力探针 | 显式加载锁定定义、把对应 Skill 与输入字节提供给当前 Agent、一个阶段、一个真实工具调用/受信回执、候选文件提交/检查、取消，以及同 Skill A/B 的目录/会话隔离 | 所选版本实际执行通过，包括 S3.A4；缺能力先换适配方案，不先建设完整运行时 |
 | D2 TaskLoop Rust 核心 | 定义加载/锁定、三类状态解释、多实例命名空间/接收上限/公平待办、事件/信号、每实例 CAS、Checkpoint/outbox、限制、产物存取、取消与错误 | 实际 crate 的通用、多实例与故障测试；不得只用 reference model 宣称交付 |
 | D3 受控 Harness/CLI 适配 | 有界阶段调用、独立工作目录/会话/配置、工具授权、产物收集、真实取消、逻辑 ID 绑定；不要求原位重检/续跑 | 真实二进制/模型版本及隔离测试；不能靠 CLI 名字或能力自报，也不能只靠串行执行规避串数据 |
-| D4 Inquiry 能力与工具 | 研究 Skill、Playbook、搜索/抓取回执、规范化、领域 gate、UI 与对象投影 | 六阶段真实研究闭环及引用链；检查器语义质量单独评估 |
+| D4 Inquiry 能力与工具 | 研究 Skill/附加机器资源、宿主注册的搜索/抓取与领域 gate、薄 Web 接入、UI 与对象投影 | 六阶段真实研究闭环及引用链，S3.A5 的接入/关联恢复；检查器语义质量单独评估，不新增研究调度层 |
 | D5 固定依赖接入 | Cargo 完整提交 SHA、锁文件、工具链/Schema/接口兼容说明 | 实际构建和一期 E2E；当前无可用 crate SHA |
 
 推进按 D1 人工评审 → D0 真实能力探针 → D2/D3 最小接入与 D4 单条研究闭环 → D5 固定依赖和真实验收。D0 未通过不能声称所选 Harness 可兑现本契约；本轮未执行该探针，也未启动产品开发。当前只更新 Inquiry 设计，不修改 TaskLoop 源码/RFC或创建额外 Issue。
@@ -458,6 +591,8 @@ Skill 不等于 CLI；Playbook 不由 Markdown 自动推断；业务定义可放
 具体模型、Harness 版本、Rust 工具链/异步运行时、真实检索提供方、抓取及规范化组件、语义 gate 的可靠性与阈值需实测后锁定。不能以这些版本尚未选择为由模糊控制权，也不能把它们写成已验证能力。并行状态、图外动态重规划、完整迁移和外部写工具另立后续设计。
 
 ## 13 ADR、版本修订与关联
+
+v0.4.3 L2 对齐 L1 v0.4.3：明确只读包的安装/加载与方法提供契约；用七层表、调用图和主/失败时序解释宿主、Runtime、Worker/Harness 与包的关系；补齐 HTTP 到 crate 的衔接及关联幂等；一期无独立 Planner。新增 S3.A4/A5 为真实实现必需验收，当前 not_run；机器 Schema、六阶段图与公开 crate API 不变，既有 82 项模型证据不能替代这两项真实接入证据。
 
 v0.4.2 复核收敛：对齐网址输入与界面；移除一期原位恢复协议；明确单库/静态绑定；将真实 Harness 探针前置；修复见证模型检查器异常和存储读取异常未阻塞的问题；执行代数字段统一为 run_epoch。扩展点保留在 EntryContract/Playbook、注册适配器与 gate，不预建插件或恢复平台。所有决定仍待人工评审。
 
@@ -471,6 +606,8 @@ v0.4.2 复核收敛：对齐网址输入与界面；移除一期原位恢复协�
 | ADR-06 | 不可变版本、单写者 Checkpoint、fencing 与幂等 | 放弃活动流程热改与 exactly-once 外部副作用承诺 |
 | ADR-07 | Skill 定义只读共享，运行状态和上下文按实例隔离，多实例复用有界 Worker 池 | 放弃按 Skill 名称保存单例状态/目录/会话；默认串行 Worker 不等于只能接收一个实例 |
 | ADR-08 | 一 SQLite/本地产物目录、静态绑定、网址输入；阻塞后取消并重新发起 | 放弃一期文件导入、插件系统和原位恢复协议；扩展先由实际用例驱动 |
+| ADR-09 | 薄 Web 宿主内嵌 crate；包由 Runtime 读取机器契约、由 Agent 读取方法 | 放弃 Skill 主动调用 Runtime、在 Web 宿主重复研究状态机、仅凭“已安装”宣称方法已交付 |
+| ADR-10 | 一期由普通 Worker/Agent 产出 plan 并规划当前阶段 | 放弃独立 Planner/动态 Router，以锁定图与固定 executor 满足最小闭环 |
 
 均为 Proposed，真实评审决定在 Issue 记录，不由设计作者自批。用户确认的技术栈保持不变；完整契约方案本轮提交评审，产品实现尚未开始。
 
