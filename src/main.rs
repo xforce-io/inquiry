@@ -14,6 +14,8 @@ use tokio_util::sync::CancellationToken;
 struct ObservedBridge {
     inner: Arc<dyn ToolBridge>,
     called: Arc<AtomicBool>,
+    log: Arc<Mutex<std::fs::File>>,
+    invocation: Value,
 }
 #[async_trait]
 impl ToolBridge for ObservedBridge {
@@ -22,12 +24,30 @@ impl ToolBridge for ObservedBridge {
     }
     async fn call(&self, id: &str, args: Value) -> Result<Value> {
         self.called.store(true, Ordering::SeqCst);
-        self.inner.call(id, args).await
+        let clock = Instant::now();
+        let arguments = if id == "artifact.write" {
+            json!({"slot":args["slot"],"value_sha256":inquiry::domain::hash(args["value"].to_string().as_bytes())})
+        } else {
+            args.clone()
+        };
+        let result = self.inner.call(id, args).await;
+        let outcome = match &result {
+            Ok(v) if id == "artifact.read" => {
+                json!({"artifact":v["artifact"],"id":v["id"],"sha256":v["sha256"],"text_bytes":v["text"].as_str().map(str::len)})
+            }
+            Ok(v) => json!({"value":v}),
+            Err(e) => json!({"error":e}),
+        };
+        write_audit(
+            &self.log,
+            &json!({"kind":"host_tool_call","invocation":self.invocation,"tool":id,"arguments":arguments,"elapsed_seconds":clock.elapsed().as_secs_f64(),"outcome":outcome}),
+        );
+        result
     }
 }
 struct Audited {
     inner: CodexExecutor,
-    log: Mutex<std::fs::File>,
+    log: Arc<Mutex<std::fs::File>>,
 }
 #[async_trait]
 impl Executor for Audited {
@@ -49,6 +69,8 @@ impl Executor for Audited {
         let tools = Arc::new(ObservedBridge {
             inner: tools,
             called: called.clone(),
+            log: self.log.clone(),
+            invocation: record.clone(),
         });
         let result = self.inner.execute(inv, tools, cancel).await;
         let usage = match &result {
@@ -57,15 +79,21 @@ impl Executor for Audited {
         };
         let known = called.load(Ordering::SeqCst) || usage["model"].is_string();
         let event = json!({"kind":"native_research_attempt","invocation":record,"elapsed_seconds":clock.elapsed().as_secs_f64(),"model_calls":if known{json!(1)}else{Value::Null},"usage":usage,"outcome":result});
-        if let Ok(mut log) = self.log.lock()
-            && let Err(e) = writeln!(log, "{event}")
-        {
-            eprintln!("research audit unavailable: {e}");
-        }
+        write_audit(&self.log, &event);
         result
     }
     async fn stop_or_confirm(&self, id: &str) -> StopState {
         self.inner.stop_or_confirm(id).await
+    }
+}
+fn write_audit(log: &Mutex<std::fs::File>, event: &Value) {
+    match log.lock() {
+        Ok(mut file) => {
+            if let Err(e) = writeln!(file, "{event}") {
+                eprintln!("research audit unavailable: {e}");
+            }
+        }
+        Err(_) => eprintln!("research audit unavailable: log lock poisoned"),
     }
 }
 #[tokio::main]
@@ -83,7 +111,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .open(data.join("research-audit.ndjson"))?;
     let executor = Arc::new(Audited {
         inner: CodexExecutor::new("gpt-6-astra")?,
-        log: Mutex::new(log),
+        log: Arc::new(Mutex::new(log)),
     });
     let definition = inquiry::domain::definition(&root)?;
     let digest = definition.digest.clone();

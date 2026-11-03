@@ -167,18 +167,55 @@ pub fn normalize(body: &[u8], content_type: &str) -> Result<Normalized> {
     })
 }
 
+fn search_results(html: &str) -> Vec<Value> {
+    let doc = Html::parse_document(html);
+    let snippets = Selector::parse(".snippet[data-type=web]").expect("constant selector");
+    let anchors = Selector::parse("a[href]").expect("constant selector");
+    let title = Selector::parse(".search-snippet-title").expect("constant selector");
+    let mut results = Vec::new();
+    let mut seen = BTreeSet::new();
+    for snippet in doc.select(&snippets) {
+        for anchor in snippet.select(&anchors) {
+            let label = if let Some(t) = anchor.select(&title).next() {
+                Some(t.text().collect::<String>())
+            } else if anchor.value().classes().any(|c| c == "title") {
+                Some(anchor.text().collect::<String>())
+            } else {
+                None
+            };
+            let Some(label) = label else { continue };
+            let Ok(url) = canonical(anchor.value().attr("href").unwrap_or("")) else {
+                continue;
+            };
+            if !seen.insert(url.clone()) {
+                continue;
+            }
+            let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+            if label.is_empty() {
+                continue;
+            }
+            results.push(
+                json!({"url":url,"title":label.chars().take(300).collect::<String>(),"snippet":""}),
+            );
+            if results.len() == 30 {
+                return results;
+            }
+        }
+    }
+    results
+}
 pub struct Search;
 #[async_trait]
 impl DomainTool for Search {
     fn spec(&self) -> ToolSpec {
-        ToolSpec{id:"inquiry.search".into(),description:"Discover public source URLs via actual search. A result is not a fetched or verified page.".into(),input_schema:json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":300}},"required":["query"],"additionalProperties":false})}
+        ToolSpec{id:"inquiry.search".into(),description:"Discover public source URLs via actual search. A result is not a fetched or verified page. Use at most eight searches in this entry, then submit candidates, even if empty.".into(),input_schema:json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":300}},"required":["query"],"additionalProperties":false})}
     }
     async fn call(&self, c: ToolContext, args: Value) -> Result<ToolOutput> {
         let query = text(&args, "query")?;
-        let mut url = url::Url::parse("https://www.bing.com/search").expect("constant URL");
+        let mut url = url::Url::parse("https://search.brave.com/search").expect("constant URL");
         url.query_pairs_mut()
             .append_pair("q", query)
-            .append_pair("format", "rss");
+            .append_pair("source", "web");
         let page = match crate::net::fetch(url.as_str(), &c).await {
             Ok(p) if p.status == 200 => p,
             Ok(p) => {
@@ -192,29 +229,10 @@ impl DomainTool for Search {
                 ));
             }
         };
-        let xml = std::str::from_utf8(&page.body).map_err(|_| fault("搜索响应不是UTF-8"))?;
-        let doc = roxmltree::Document::parse(xml).map_err(|_| fault("搜索响应不是RSS"))?;
-        let mut results = Vec::new();
-        let mut seen = BTreeSet::new();
-        for item in doc
-            .descendants()
-            .filter(|n| n.has_tag_name("item"))
-            .take(30)
-        {
-            let field = |name| {
-                item.children()
-                    .find(|n| n.has_tag_name(name))
-                    .and_then(|n| n.text())
-                    .unwrap_or("")
-            };
-            if let Ok(u) = canonical(field("link"))
-                && seen.insert(u.clone())
-            {
-                results.push(json!({"url":u,"title":field("title").chars().take(300).collect::<String>(),"snippet":field("description").chars().take(700).collect::<String>()}));
-            }
-        }
+        let html = std::str::from_utf8(&page.body).map_err(|_| fault("搜索响应不是UTF-8"))?;
+        let results = search_results(html);
         Ok(ToolOutput::json(
-            json!({"query":query,"results":results,"status":"discovered","searched_at":chrono::Utc::now().to_rfc3339(),"search_url":page.final_url}),
+            json!({"query":query,"status":if results.is_empty(){"unavailable"}else{"discovered"},"reason":if results.is_empty(){"未取得可解析的网页搜索结果；不得将挑战页视为来源"}else{"搜索发现不等于获取或内容核验"},"results":results,"searched_at":chrono::Utc::now().to_rfc3339(),"search_url":page.final_url,"provider":"brave-html"}),
         ))
     }
 }
@@ -695,7 +713,7 @@ pub fn definition(root: &Path) -> Result<Definition> {
     Definition::load(
         root.join("resources/research.bundle.json"),
         &BTreeMap::from([(
-            "inquiry-deep-research@0.3.0".into(),
+            "inquiry-deep-research@0.3.1".into(),
             root.join("skills/inquiry-deep-research"),
         )]),
     )
@@ -765,6 +783,15 @@ mod tests {
     }
     fn cite(a: &ArtifactData) -> Value {
         json!({"artifact_id":a.reference.id,"sha256":a.reference.sha256,"paragraph":0,"quote":"precise, saved statement"})
+    }
+    #[test]
+    fn search_parser_keeps_only_actual_result_titles_and_links() {
+        let html = r#"<a href="https://advert.example/">Advertisement</a><div class="snippet" data-type="web"><a href="https://example.com/docs"><div class="search-snippet-title">Example Docs</div></a><div class="result-cluster"><div class="snippet"><a class="title" href="https://example.com/deep">Deep documentation</a></div></div><a href="https://ignored.example/">non-result action</a><a class="title" href="javascript:alert(1)">Invalid</a></div><script>invented.example</script>"#;
+        let results = search_results(html);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["url"], "https://example.com/docs");
+        assert_eq!(results[1]["url"], "https://example.com/deep");
+        assert!(search_results("<html>Complete a challenge</html>").is_empty());
     }
     #[test]
     fn production_contract_loads_from_static_package() {

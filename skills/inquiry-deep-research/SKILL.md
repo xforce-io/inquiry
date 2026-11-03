@@ -2,7 +2,7 @@
 name: inquiry-deep-research
 description: Research public sources through an explicit six-stage process, preserving acquisition facts and exact evidence before producing a decision report.
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
 ---
 
 # Inquiry research method
@@ -19,7 +19,7 @@ Read the question carefully. State 4–7 decision-relevant subquestions, 5–8 c
 
 ### discover → candidates
 
-Read the latest plan. Use inquiry.search for several DIFFERENT queries covering official documentation, independent evidence, failure modes and counterarguments. Prefer primary sources, but do not exclude contrary evidence. User seed URLs and sources.added URLs are explicit candidates even without a search receipt; mark their discovery_receipt_id as "user-input". For searched URLs, copy the EXACT URL and the genuine outer receipt_id returned by the search tool.
+Read the latest plan. You have a hard total host-tool budget of40 for this entry. Use at most8 search calls, including failed or irrelevant searches. Reserve calls for reading the plan and writing candidates. After8 searches, stop searching and submit the best genuine candidates collected; if none are relevant, submit items:[] with the actual limitation so the workflow waits for sources. Never retry after a tool-budget error; submit the required candidate immediately if a write remains available. Use inquiry.search for several DIFFERENT queries covering official documentation, independent evidence, failure modes and counterarguments. Prefer primary sources, but do not exclude contrary evidence. User seed URLs and sources.added URLs are explicit candidates even without a search receipt; mark their discovery_receipt_id as "user-input". For searched URLs, copy the EXACT URL and the genuine outer receipt_id returned by the search tool.
 
 Produce up to20 unique candidate URLs with unique source_id values r{current visit}s1 through r{current visit}s20 (for example r1s1,r1s2 on discovery visit1), url, discovery_receipt_id, subquestion. Select diverse documents across all subquestions, not twenty copies of a homepage; favor deep documentation and methodology over promotional snippets. Search-result snippets are discovery hints, not quoted evidence. Explain stopping/coverage in stop_reason. On a later visit, use prior gaps if available and supplied new URLs; do not repeat an unchanged search set without reason. Missing candidates require more searches or waiting, not invented URLs.
 
