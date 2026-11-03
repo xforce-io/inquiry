@@ -1,0 +1,216 @@
+{
+  "mechanically_valid_citations": 19,
+  "distinct_final_urls": 16,
+  "semantic_review_pending": true,
+  "rows": [
+    {
+      "citation": 1,
+      "url": "https://www.sqlite.org/fts5.html",
+      "artifact_sha256": "7c554cf3ea252c5e6322b0864deef2f45234605eff855fa1d4aa0a3f572d0597",
+      "normalized_sha256": "9c154b42f0ee4b6b98266d1578c0ea1954a194bede9329dfe9b154b469459681",
+      "paragraph_zero_based": 123,
+      "exact_quote": "This is the default.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 2,
+      "url": "https://www.sqlite.org/fts5.html",
+      "artifact_sha256": "7c554cf3ea252c5e6322b0864deef2f45234605eff855fa1d4aa0a3f572d0597",
+      "normalized_sha256": "9c154b42f0ee4b6b98266d1578c0ea1954a194bede9329dfe9b154b469459681",
+      "paragraph_zero_based": 156,
+      "exact_quote": "Substrings consisting of fewer than 3 unicode characters do not match any rows",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 3,
+      "url": "https://www.sqlite.org/fts5.html",
+      "artifact_sha256": "7c554cf3ea252c5e6322b0864deef2f45234605eff855fa1d4aa0a3f572d0597",
+      "normalized_sha256": "9c154b42f0ee4b6b98266d1578c0ea1954a194bede9329dfe9b154b469459681",
+      "paragraph_zero_based": 192,
+      "exact_quote": "kept consistent with the content table itself",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 4,
+      "url": "https://github.com/quickwit-oss/tantivy",
+      "artifact_sha256": "1bac1588759ca5cf16fcb7ef5e9c2fb8fdf6c6c2203f6994840cf52a4956149a",
+      "normalized_sha256": "2fdcd45bc98c1b996d51bbe8cb536a2b51d46f42e27d69ac53cf8c778a33af72",
+      "paragraph_zero_based": 19,
+      "exact_quote": "it is not an off-the-shelf search engine server",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 5,
+      "url": "https://github.com/jiegec/tantivy-jieba",
+      "artifact_sha256": "dee9f3bccd8b21bcd703d8bdf3e7eac61c0a628f98143b4c3a3577b0d4d72da7",
+      "normalized_sha256": "769ac80f2839aeb6f6ad83d89fbcd4e6773b3e75f4da67b03cc3df745f097dc3",
+      "paragraph_zero_based": 17,
+      "exact_quote": "Add dependency tantivy-jieba to your Cargo.toml .",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 6,
+      "url": "https://tantivy-search.github.io/examples/deleting_updating_documents.html",
+      "artifact_sha256": "e3f47ceef21ae1f086300546cce29eeff681f01a6e96ede6684753dcd154b7af",
+      "normalized_sha256": "d10524ebb23d2deb5ecdc414e7881e28d0da2008b2880999341c7c5b3ac790d6",
+      "paragraph_zero_based": 34,
+      "exact_quote": "tantivy does nothing to enforce the idea that there is only one document associated with this id.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 7,
+      "url": "https://github.com/quickwit-oss/tantivy/blob/main/ARCHITECTURE.md",
+      "artifact_sha256": "7b604ee4ad2bda3b02d356177791abe660b3f69ab5f962d6b025c93d7fabdc49",
+      "normalized_sha256": "3166fd78c8f3dec8defff9e5113364534b63d887646eef85a35e3b24eb57e2cf",
+      "paragraph_zero_based": 35,
+      "exact_quote": "meta.json is then updated atomically.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 8,
+      "url": "https://www.meilisearch.com/blog/searching-across-multiple-languages",
+      "artifact_sha256": "9b31232e56cb3d6f6e2b4dc439bf6fe1099ba99ecdd076016f589b059a570044",
+      "normalized_sha256": "4c50ac16de9f7b77904e558ff0fae483c71efb73ac54183524b2b89f215f851d",
+      "paragraph_zero_based": 32,
+      "exact_quote": "Its tokenizer handles both whitespace-separated languages",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 9,
+      "url": "https://www.meilisearch.com/docs/capabilities/indexing/advanced/tokenization",
+      "artifact_sha256": "0b08069f2be5f53090a8877c3802781cf80529a8efcfa1817a582b800203eb65",
+      "normalized_sha256": "88fd34ede8993567827c6e0379c8c51eb28f6dbd65472e9ae37ed31d52b7cc8d",
+      "paragraph_zero_based": 3,
+      "exact_quote": "splitting each field by script",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 10,
+      "url": "https://github.com/meilisearch/meilisearch/issues/4438",
+      "artifact_sha256": "e3fff1174565a4b19dbee8071eebc9ebaebe6340e3f3cd5b06dada8c8c71bb6b",
+      "normalized_sha256": "809f93745a9a741e1bceaf85f4cd600577b21643e4df0d733d0fe6b0273d9cbb",
+      "paragraph_zero_based": 24,
+      "exact_quote": "Meilisearch processes tasks asynchronously",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 11,
+      "url": "https://github.com/quickwit-oss/tantivy/blob/main/CHANGELOG.md",
+      "artifact_sha256": "78d074d84897d8499dd11de6742ef891915a84d905346b1d500f18a761cd9f9f",
+      "normalized_sha256": "433105319ba7960e3d4b74c1f2015e50f3627bffeec54cb6d9889cb88aa2e1a6",
+      "paragraph_zero_based": 152,
+      "exact_quote": "fix union performance regression in tantivy 0.24",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 12,
+      "url": "https://www.sqlite.org/wal.html",
+      "artifact_sha256": "5238e4b9f20b231b74fc327c1d7b6a5acdf305da90018249acac793596c11f2d",
+      "normalized_sha256": "ecae67d218482c911d4edfc1f7dc62f178d56d4b58162fa805cf287903fb8f69",
+      "paragraph_zero_based": 40,
+      "exact_quote": "Writers sync the WAL on every transaction commit if PRAGMA synchronous is set to FULL",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 13,
+      "url": "https://www.sqlite.org/howtocorrupt.html",
+      "artifact_sha256": "94943123507a03e674f585b1a0fab1fbd7e399146b46bc78dfd49335c96dab00",
+      "normalized_sha256": "45bce240b281e1a67820b16a5733651c7521624b5c2215c43a52845683f950cc",
+      "paragraph_zero_based": 24,
+      "exact_quote": "The backup API is a C-language interface that can make a consistent copy of an SQLite database.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 14,
+      "url": "https://www.meilisearch.com/docs/resources/self_hosting/data_backup/overview",
+      "artifact_sha256": "6aafe402b82854931b3c86e039d8ecf27d054392890893f3696871e68a991819",
+      "normalized_sha256": "a978427568a48c9e9ebf18fcf084022e5010e8c2eee18863065c4d8a7fb64b10",
+      "paragraph_zero_based": 1,
+      "exact_quote": "snapshots for periodic safeguards and dumps for version migration",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 15,
+      "url": "https://www.meilisearch.com/docs/resources/migration/updating",
+      "artifact_sha256": "90c0a56fda4f143264e08734e76f0ba9b03a3c8905d65234804ba6028422519e",
+      "normalized_sha256": "cd304d294efb4715ef614cadafa5bc24bdb0058b1907ca163b24356155a649c5",
+      "paragraph_zero_based": 5,
+      "exact_quote": "Make a backup",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 16,
+      "url": "https://sqlite.org/copyright.html",
+      "artifact_sha256": "f5501ecce33f4f8b8fae0a4974c2f13fad3ca13f79cd93d07d608a20073e7d1d",
+      "normalized_sha256": "7857fd435752042bd323f1f32e75dd42ffe8fa0ab46b9cb662e18722e91e1f3d",
+      "paragraph_zero_based": 9,
+      "exact_quote": "SQLite Is Public Domain",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 17,
+      "url": "https://www.meilisearch.com/docs/resources/self_hosting/enterprise_edition",
+      "artifact_sha256": "5297895e6741ad4722f8b609105573d19b43446d4cfb6037051df2831e16ed1f",
+      "normalized_sha256": "c25c3fcf6f2994d4208e4ed1cab06daa9c4397a25fdfce0764eea992df68fe44",
+      "paragraph_zero_based": 1,
+      "exact_quote": "Community edition is free under the MIT license",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 18,
+      "url": "https://www.meilisearch.com/docs/resources/self_hosting/enterprise_edition",
+      "artifact_sha256": "5297895e6741ad4722f8b609105573d19b43446d4cfb6037051df2831e16ed1f",
+      "normalized_sha256": "c25c3fcf6f2994d4208e4ed1cab06daa9c4397a25fdfce0764eea992df68fe44",
+      "paragraph_zero_based": 1,
+      "exact_quote": "Enterprise offers advanced features under a BUSL license.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    },
+    {
+      "citation": 19,
+      "url": "https://github.com/nazmul284/search-without-elasticsearch",
+      "artifact_sha256": "99ac17e6c7eea80a58b855cf9cf4d8e5a4651b04dbe7ccf7d0a74b2405a3a87d",
+      "normalized_sha256": "6fea958e66d580b77979ddd3fc9babdcea1f34aa62c677ac54e0471d6a306ab3",
+      "paragraph_zero_based": 15,
+      "exact_quote": "each with its own English analysis",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "semantic_support": "Pending independent comparison and claim-context audit; location match alone is insufficient"
+    }
+  ]
+}
