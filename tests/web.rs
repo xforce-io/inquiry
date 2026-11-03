@@ -86,7 +86,7 @@ impl Fixture {
             Definition::load(
                 bundle_path,
                 &std::collections::BTreeMap::from([(
-                    "inquiry-deep-research@0.3.3".into(),
+                    "inquiry-deep-research@0.3.4".into(),
                     repository.join("skills/inquiry-deep-research"),
                 )]),
             )

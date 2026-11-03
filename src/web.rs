@@ -187,7 +187,7 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
 }
 async fn health() -> Json<Value> {
     Json(
-        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":"1c69bcf8a1bc0a7d9a4564bbe93f8b13d7317d04","method_version":"0.3.3"}),
+        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":"1c69bcf8a1bc0a7d9a4564bbe93f8b13d7317d04","method_version":"0.3.4"}),
     )
 }
 async fn research(State(host): State<Host>, Path(id): Path<String>) -> ApiResult {
