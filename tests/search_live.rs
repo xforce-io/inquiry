@@ -24,7 +24,7 @@ impl Executor for SearchProbe {
         let (slot, value) = if inv.state_id == "scope" {
             (
                 "plan",
-                json!({"question":inv.inputs["question"],"subquestions":["synthetic producer probe"],"search_queries":["Playwright locators auto waiting official documentation"],"stop_reason":"public search tool only; no model/report"}),
+                json!({"subquestions":["synthetic producer probe"],"search_queries":["Playwright locators auto waiting official documentation"],"stop_reason":"public search tool only; no model/report"}),
             )
         } else {
             for query in [

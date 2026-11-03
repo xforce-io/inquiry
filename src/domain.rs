@@ -431,12 +431,8 @@ pub fn check_domain(
     signals: &[SignalFact],
 ) -> Result<String> {
     match state {
-        "scope" => {
-            if out["question"] != inputs["question"] {
-                return Err(fault("计划改变了原始问题"));
-            }
-            Ok("ready".into())
-        }
+        // The original question is immutable flow input, not model-authored plan data.
+        "scope" => Ok("ready".into()),
         "discover" => {
             let mut user_urls = BTreeSet::new();
             for v in inputs["seed_urls"].as_array().into_iter().flatten().chain(
@@ -713,7 +709,7 @@ pub fn definition(root: &Path) -> Result<Definition> {
     Definition::load(
         root.join("resources/research.bundle.json"),
         &BTreeMap::from([(
-            "inquiry-deep-research@0.3.1".into(),
+            "inquiry-deep-research@0.3.2".into(),
             root.join("skills/inquiry-deep-research"),
         )]),
     )

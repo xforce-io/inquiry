@@ -29,7 +29,7 @@ impl Executor for Controlled {
         let (slot, value) = match inv.state_id.as_str() {
             "scope" => (
                 "plan",
-                json!({"question":inv.inputs["question"],"subquestions":["synthetic question"],"search_queries":["synthetic query"],"stop_reason":"synthetic fixture"}),
+                json!({"subquestions":[inv.inputs["question"]],"search_queries":["synthetic query"],"stop_reason":"synthetic fixture"}),
             ),
             "discover" => (
                 "candidates",
@@ -86,7 +86,7 @@ impl Fixture {
             Definition::load(
                 bundle_path,
                 &std::collections::BTreeMap::from([(
-                    "inquiry-deep-research@0.3.1".into(),
+                    "inquiry-deep-research@0.3.2".into(),
                     repository.join("skills/inquiry-deep-research"),
                 )]),
             )
@@ -294,7 +294,7 @@ async fn idempotent_start_signal_conflict_and_cross_research_artifact_paths() {
         .request("GET", &path, None, true, None, "127.0.0.1:3410")
         .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(data["value"]["question"], "synthetic A");
+    assert_eq!(data["value"]["subquestions"][0], "synthetic A");
     let path = format!("/api/research/{a}/sources");
     let req = json!({"urls":["https://example.com/"],"request_key":"source","expected_revision":sa.revision-1});
     assert_eq!(f.post(&path, req).await.0, StatusCode::CONFLICT);

@@ -2,10 +2,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "question": {
-      "type": "string",
-      "minLength": 1
-    },
     "subquestions": {
       "type": "array",
       "items": {
@@ -28,7 +24,6 @@
     }
   },
   "required": [
-    "question",
     "subquestions",
     "search_queries",
     "stop_reason"
