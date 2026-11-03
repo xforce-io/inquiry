@@ -1,11 +1,11 @@
 # Inquiry Issue #2：真实研究 Web 与质量实验
 
-版本：v0.1.1；状态：实现前草案，实验协议在任何研究/基线报告生成前登记。当前只准备设计，不提前启动产品实现。
+版本：v0.1.2；状态：开发中，实验协议在任何研究/基线报告生成前登记；产品验收与真实实验尚未执行。
 需求：[Issue #2](https://github.com/xforce-io/inquiry/issues/2)。L1 reuse：[Issue #1 L1 v0.5.0](https://github.com/xforce-io/inquiry/issues/1#issuecomment-6555157047)，加本次用户明确要求真实研究质量对照与 computer use 验证；L2 write：本文件为实现票唯一 L2。前置领域设计见 [Issue #1 L2 v0.5.0](1-minimal-research-loop.md)，历史稿保留，不作为第二份实现规格。
 
 ## 1 背景
 
-设计阶段已确认六阶段研究、TypeScript Web、薄 Rust Web 宿主和 TaskLoop crate 直连。本票交付真实产品，证明来源与报告连通，并用固定问题验证研究质量。TaskLoop 当前候选仍在交付门禁中，不能把未合入提交写成已交付依赖。
+设计阶段已确认六阶段研究、TypeScript Web、薄 Rust Web 宿主和 TaskLoop crate 直连。本票交付真实产品，证明来源与报告连通，并用固定问题验证研究质量。TaskLoop 已通过完整独立审查、真实Harness和双平台CI，并由PR #4合入main；Inquiry固定经审候选 `1c69bcf8a1bc0a7d9a4564bbe93f8b13d7317d04`，其合入提交为 `9197afac45be43992cd72ef6e0549d92175d3d49`。
 
 ## 2 名词解释
 
@@ -69,17 +69,17 @@ Web 负责输入和阅读；Web 宿主负责 HTTP/可信调用者、公开接口
 
 采集阶段产生动态快照附件。后续所需捕获产物通过公开 Requirement 的 `include_attachments: true` 显式授权，仅消费所选生产访问；不绕过工具桥读文件。该能力须由最终已验证 TaskLoop 提交提供。
 
-获取事实必须进入可读取的已接纳业务产物，供页面展示请求/最终网址、时间、可用性与内容版本。materials 可携带领域获取事实；领域检查逐项比对当前受信工具回执与真实字节，接纳后才能作为展示依据。应用不新增读取 TaskLoop 私有回执或表的接口。
+获取事实必须进入可读取的已接纳业务产物，供页面展示请求/最终网址、时间、可用性与内容版本。materials 必须携带完整领域获取事实（source_id、请求/最终网址、时间、HTTP状态、处置、原因、原始/规范化摘要、转换版本、可用性与附件槽）；领域检查逐项比对当前受信工具回执与真实字节，接纳后才能作为展示依据。应用不新增读取 TaskLoop 私有回执或表的接口。
 
 ## 8 API/CLI 与依赖
 
 沿用既定 HTTP：POST /api/research、GET /api/research/{id}、POST .../sources、POST .../cancel、GET .../artifacts/{artifact_id}。一研究一 ExecutionId；幂等键、revision 和错误按公开契约传递，不另造状态。
 
-宿主构造单用户可信身份，不接受 JSON 自报 Caller。产物路径必须属于该研究公开快照中的引用；同一主体的其它研究也不能经错误的研究路径混读。仅监听本地工作区，校验 Host/Origin，使用同源安全会话；具体配置在运行说明中固定。
+宿主构造单用户可信身份，不接受 JSON 自报 Caller。产物路径必须属于该研究公开快照中的引用；同一主体的其它研究也不能经错误的研究路径混读。仅监听本地工作区，校验 Host/Origin，使用同源安全会话；仅监听127.0.0.1，默认端口3410；Host/Origin与实际监听端口精确对应，API需要HttpOnly/SameSite=Strict会话，写操作还需同源Origin。具体配置在运行说明中固定。
 
-网络工具只支持受限 HTTP(S)，每跳校验目标网络与 DNS，禁止内网/环回/保留地址、凭据 URL 和任意协议；限制重定向、并发、时长与字节。代理环境也须保持最终目标 IP 约束，不能仅在本地检查域名后交给代理重新解析。失败按真实原因留存。
+网络工具只支持受限 HTTP(S)，每跳校验目标网络与 DNS，禁止内网/环回/保留地址、凭据 URL 和任意协议；限制重定向、并发、时长与字节。代理环境也须保持最终目标 IP 约束，不能仅在本地检查域名后交给代理重新解析。仅80/443端口；每页正文上限1MiB、最多5次重定向、单次获取总边界约32秒；原始正文私有保存，规范化截断需明确标记。失败按真实原因留存。
 
-Cargo 固定最终经 TaskLoop 审查/CI/合入的完整 SHA 与 Cargo.lock。当前候选不是已交付依赖，接入前不得编造可用版本。除公开初始化及五操作外，不依赖内部 Worker、表或调度。
+Cargo 固定最终经 TaskLoop 审查/CI/合入的完整 SHA 与 Cargo.lock。固定依赖为上述已审且已包含于main的完整候选SHA。除公开初始化及五操作外，不依赖内部 Worker、表或调度。
 
 ## 9 边界
 
@@ -103,7 +103,7 @@ N/A：无既有产品数据或运行服务迁移。发布前固定业务包版�
 | S4 | 以下固定研究对照达到已登记阈值 | E2E：真实报告、真实基线、独立盲评、引用/事实核对与原始失败记录 |
 | S5 | 两类页面、七类主要操作顺畅，无阻断使用问题 | E2E：最终候选 computer use 实际驾驶；截图、状态及保存结果对应；完整状态的确定性测试单独记录 |
 
-实现期间须建立 `.agents/skills/verify-inquiry/SKILL.md` 和功能地图，覆盖 S1–S5 后才能交接驾驶验证。当前尚未实现、未执行，不能写 pass。独立代码审查、CI、人工门和合入仍为交付必经步骤，不要求它们在启动自身之前已经完成。
+实现期间须建立 `.agents/skills/verify-inquiry/SKILL.md` 和功能地图，覆盖 S1–S5 后才能交接驾驶验证。功能地图主要归属：S1→[research.md](../../.agents/skills/verify-inquiry/features/research.md)，S2→[sources.md](../../.agents/skills/verify-inquiry/features/sources.md)，S3→[reliability.md](../../.agents/skills/verify-inquiry/features/reliability.md)，S4→[quality.md](../../.agents/skills/verify-inquiry/features/quality.md)，S5→[web.md](../../.agents/skills/verify-inquiry/features/web.md)。手册已建立，正在实现验证；未执行的验收仍记not_run，不能写pass。独立代码审查、CI、人工门和合入仍为交付必经步骤，不要求它们在启动自身之前已经完成。
 
 ### 11.2 固定 demo 与报告条件
 
@@ -193,7 +193,7 @@ N/A：无既有产品数据或运行服务迁移。发布前固定业务包版�
 
 ## 12 开放问题与推进门槛
 
-TaskLoop 尚待追加审查授权和真实交付；在此之前只准备本稿，不开发依赖未交付版本的产品。检索/规范化组件需实测后固定，预算需与候选处置、原始/规范化留存及工具调用上限自洽；不能把预算跳过项说成已访问。
+TaskLoop 已完成前置交付，现按同一产品基线开始实现，不扩大到其内部机制。检索/规范化组件需实测后固定，预算需与候选处置、原始/规范化留存及工具调用上限自洽；不能把预算跳过项说成已访问。
 
 共同提示词、评价者配置、随机化和评分已在本稿固定；准确截止时间、实际研究ID对应的映射及不可变输出路径必须在运行开始时登记，不能看结果后补填。真实报告质量、Web可用性、独立审查、CI及合入均未完成。
 

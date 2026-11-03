@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "registered_at_utc": "2026-11-03T06:38:10Z",
+  "cutoff_utc": "2026-11-03T06:38:10Z",
+  "protocol_version": "v0.1.2",
+  "protocol_sha256": "4667bf5c7756f42b335a998177b9ad10c31607187d28781b0c09dfc7682b1962",
+  "common_prompt_sha256": "12e5934090db6241ef4243889943d6f6803eb75df674a2b4544b3c8259d11e6a",
+  "mapping_commitment_sha256": "99a73bbb1578ec32c192f7fc0a1cbc43eb4dc9962db4091742f82f974190b9c1",
+  "research": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "method": "0.3.0",
+    "first_report_before_baselines": true
+  },
+  "baselines": {
+    "model": "gpt-6-astra",
+    "effort": "max",
+    "count": 3,
+    "tools": false
+  },
+  "judges": [
+    {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "order": [
+        "R1",
+        "R3",
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "high",
+      "order": [
+        "R4",
+        "R2",
+        "R3",
+        "R1"
+      ]
+    }
+  ],
+  "thresholds": {
+    "inquiry_minimum": 85,
+    "gap_over_best_baseline_minimum": 15,
+    "effective_citations": 12,
+    "primary_documents": 8
+  },
+  "initial_state": "No actual Inquiry, baseline, or judge report has been generated."
+}
