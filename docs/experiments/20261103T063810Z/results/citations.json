@@ -1,0 +1,206 @@
+{
+  "mechanically_valid_citations": 18,
+  "distinct_source_documents": 14,
+  "all_primary_publisher_sources": true,
+  "semantic_review_pending": true,
+  "rows": [
+    {
+      "citation": 1,
+      "url": "https://playwright.dev/docs/best-practices",
+      "normalized_sha256": "65c03f8959b6358bdec3d19b188e261fdb9e87a6b98397482fb84e6522b05aef",
+      "paragraph_zero_based": 7,
+      "exact_quote": "Test isolation improves reproducibility",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 2,
+      "url": "https://playwright.dev/docs/best-practices",
+      "normalized_sha256": "65c03f8959b6358bdec3d19b188e261fdb9e87a6b98397482fb84e6522b05aef",
+      "paragraph_zero_based": 19,
+      "exact_quote": "Locators come with auto waiting and retry-ability.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 3,
+      "url": "https://playwright.dev/docs/test-assertions",
+      "normalized_sha256": "aea5e7812dd514d5f907fb665a32ceb20741e39cc7cadad73d69181869486e0b",
+      "paragraph_zero_based": 6,
+      "exact_quote": "until the condition is met or until the timeout is reached.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 4,
+      "url": "https://playwright.dev/docs/test-retries",
+      "normalized_sha256": "5fe706133956361c186e9367f392ddcb0768b504ff7aa44449263bbc4729da58",
+      "paragraph_zero_based": 2,
+      "exact_quote": "automatically re-run a test when it fails.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 5,
+      "url": "https://docs.stagehand.dev/v3/best-practices/deterministic-agent",
+      "normalized_sha256": "e9845f1f0168ffddb63d6a8b30f72609177eabbd784994b6e10b48d77667fea7",
+      "paragraph_zero_based": 10,
+      "exact_quote": "Same workflow reuses cached actions (no LLM calls)",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 6,
+      "url": "https://docs.stagehand.dev/v3/best-practices/deterministic-agent",
+      "normalized_sha256": "e9845f1f0168ffddb63d6a8b30f72609177eabbd784994b6e10b48d77667fea7",
+      "paragraph_zero_based": 41,
+      "exact_quote": "Cache Invalidation Strategy",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 7,
+      "url": "https://docs.stagehand.dev/v3/basics/agent",
+      "normalized_sha256": "fd2e55ec30b2b62163209934d367fd0a1dfc5a4361579ab8f198e6e66661b934",
+      "paragraph_zero_based": 10,
+      "exact_quote": "Use Agent with vision and DOM (Hybrid mode)",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 8,
+      "url": "https://arxiv.org/html/2307.13854v4",
+      "normalized_sha256": "032a2e0d2bf098a09419e34ae7f58f02a6a1ee53fe6b70051d33d89fe5692654",
+      "paragraph_zero_based": 7,
+      "exact_quote": "812 long-horizon web-based tasks",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 9,
+      "url": "https://arxiv.org/html/2307.13854v4",
+      "normalized_sha256": "032a2e0d2bf098a09419e34ae7f58f02a6a1ee53fe6b70051d33d89fe5692654",
+      "paragraph_zero_based": 68,
+      "exact_quote": "enhancing the overall task success rate of GPT-4 to 14.41%.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 10,
+      "url": "https://arxiv.org/html/2510.02418v2",
+      "normalized_sha256": "4682ae8fa5e77ac2b3432631577f6dda6c856dd7c27ef1d0aadbba960bb3aea7",
+      "paragraph_zero_based": 1,
+      "exact_quote": "captcha resolution, pop-up banner removal, and direct navigation to URLs.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 11,
+      "url": "https://servicenow.github.io/WorkArena/",
+      "normalized_sha256": "f0bdbe6cbee98d6445ac603f47c673fa765e0e339ab52f28ebc3afd7133d427a",
+      "paragraph_zero_based": 2,
+      "exact_quote": "a remote-hosted benchmark of 33 tasks",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 12,
+      "url": "https://arxiv.org/html/2410.06703v5",
+      "normalized_sha256": "a56b81266b636684acf5f1ad5142d3bd16aef03298e142917e1a0b9d3000e2c3",
+      "paragraph_zero_based": 5,
+      "exact_quote": "both the task is fully completed and every policy constraint is satisfied",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 13,
+      "url": "https://arxiv.org/html/2406.13352v3",
+      "normalized_sha256": "052f3087602833976ae1ca87fdb39c6ae04f5e07234b98361cbec968a6c7c86a",
+      "paragraph_zero_based": 1,
+      "exact_quote": "data returned by external tools hijacks the agent to execute malicious tasks.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 14,
+      "url": "https://developers.openai.com/api/docs/guides/agent-builder-safety",
+      "normalized_sha256": "45120241bd48eff3f4929174d33e23fba5f27cc94938a362446c73d2d615ea8d",
+      "paragraph_zero_based": 10,
+      "exact_quote": "agents won’t be perfect and can still make mistakes or be tricked",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 15,
+      "url": "https://docs.github.com/en/actions/reference/security/secure-use",
+      "normalized_sha256": "9653c84749a26c926ab2661246700b5070cebb3415efff38b95b1de25fb993c2",
+      "paragraph_zero_based": 9,
+      "exact_quote": "the GITHUB_TOKEN is granted the minimum required permissions.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 16,
+      "url": "https://developers.openai.com/api/docs/guides/agent-builder-safety",
+      "normalized_sha256": "45120241bd48eff3f4929174d33e23fba5f27cc94938a362446c73d2d615ea8d",
+      "paragraph_zero_based": 20,
+      "exact_quote": "review and confirm every operation, including reads and writes.",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 17,
+      "url": "https://docs.github.com/en/billing/concepts/product-billing/github-actions",
+      "normalized_sha256": "f8c66764a5e2277554fd2594a642346ca5d005844be780118c1cce8d2c2b4144",
+      "paragraph_zero_based": 1,
+      "exact_quote": "runner and storage costs",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    },
+    {
+      "citation": 18,
+      "url": "https://playwright.dev/docs/ci",
+      "normalized_sha256": "b39ebb68f809de0c98a583b503a1138991020397349bdc164dc6b4db3132d519",
+      "paragraph_zero_based": 12,
+      "exact_quote": "setting workers to \"1\" in CI environments to prioritize stability and reproducibility",
+      "artifact_version_matches": true,
+      "quote_matches_saved_paragraph": true,
+      "primary_source_type": "original research/project or vendor documentation",
+      "semantic_support": "to be assessed against original contexts; location matching alone is not proof of claim support"
+    }
+  ]
+}
