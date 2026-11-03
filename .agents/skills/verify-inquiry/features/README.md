@@ -1,6 +1,6 @@
 # Inquiry 功能地图
 
-事实源：[Issue #2](https://github.com/xforce-io/inquiry/issues/2) 与 [L2 v0.1.5](../../../../docs/design/2-research-web-mvp.md)。沿用 Issue #1 L1 v0.5.0；不补造验收编号。
+事实源：[Issue #2](https://github.com/xforce-io/inquiry/issues/2) 与 [L2 v0.1.7](../../../../docs/design/2-research-web-mvp.md)。沿用 Issue #1 L1 v0.5.0；不补造验收编号。
 
 | Story | 主要功能 | 必需路径及关联 |
 |---|---|---|

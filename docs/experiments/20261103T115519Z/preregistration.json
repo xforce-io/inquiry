@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "registered_at_utc": "2026-11-03T11:55:19Z",
+  "cutoff_utc": "2026-11-03T11:55:19Z",
+  "protocol_version": "v0.1.7 §11.8",
+  "protocol_sha256": "30ea83e1eb43afefd253b2d866870ada50ecab8e26b47163f2bc34e3eb4c6479",
+  "common_prompt_sha256": "784df5ea1c102cc0a89b61c2ed54aac2e1557a38e84401fbe7fa9908cf95f6ba",
+  "mapping_commitment_sha256": "57ea4889d1af8c50fed36f97865ee460fca602584a76d7a1fc4973d2f57d6996",
+  "task_id": "inquiry-2",
+  "research": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "method": "0.3.4",
+    "first_report_before_baselines": true
+  },
+  "baselines": {
+    "model": "gpt-6-astra",
+    "effort": "max",
+    "count": 3,
+    "tools": false
+  },
+  "judges": [
+    {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "order": [
+        "R1",
+        "R3",
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "high",
+      "order": [
+        "R4",
+        "R2",
+        "R3",
+        "R1"
+      ]
+    }
+  ],
+  "thresholds": {
+    "inquiry_minimum": 85,
+    "gap_over_best_baseline_minimum": 15,
+    "effective_citations": 12,
+    "primary_documents": 8
+  },
+  "budget": {
+    "received": "2026-11-03",
+    "question_item": "call_43efd703ffc148a6a1df0510b32c887f",
+    "answer": "批准这一次新实验，失败后交回决定（推荐）",
+    "proposal_url": "https://github.com/xforce-io/inquiry/issues/2#issuecomment-6598955002",
+    "task_id": "inquiry-2",
+    "existing": {
+      "model_calls": 27,
+      "elapsed_seconds": 3668.1097975430375
+    },
+    "additional_maximum": {
+      "model_calls": 20,
+      "elapsed_seconds": 7200
+    },
+    "cumulative_limits": {
+      "model_calls": 47,
+      "elapsed_seconds": 18000
+    },
+    "no_automatic_third_experiment": true
+  },
+  "initial_state": "No research, baseline or evaluation report for this new topic has been generated. Prior failed experiment retained."
+}
