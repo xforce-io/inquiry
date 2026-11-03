@@ -27,9 +27,14 @@ async function api<T>(path:string,body?:unknown):Promise<T>{
  let response=await fetch(path,{...options,signal:AbortSignal.timeout(15000)});
  if(response.status===401){await fetch('/',{credentials:'same-origin',cache:'no-store',signal:AbortSignal.timeout(10000)});response=await fetch(path,{...options,signal:AbortSignal.timeout(15000)});}
  let data:unknown;try{data=await response.json();}catch{throw new Error('服务暂时未返回可读取的结果，请重试。');}
- if(!response.ok){const err=data as {message?:string;code?:string};throw new Error(err.message||`请求未完成（${response.status}）`);}return data as T;
+ if(!response.ok){const err=data as {message?:string;code?:string};throw Object.assign(new Error(err.message||`请求未完成（${response.status}）`),{code:err.code,status:response.status});}return data as T;
 }
-function errorText(error:unknown){return error instanceof Error?error.message:'请求未完成，请重试。';}
+function errorText(error:unknown){
+ if(error instanceof DOMException&&['TimeoutError','AbortError'].includes(error.name))return '等待响应超时，请核对当前状态后重试。';
+ if(error instanceof TypeError)return '暂时无法连接服务，请检查网络或服务后重试。';
+ if(error instanceof Error){const code=(error as Error&{code?:string}).code;const messages:Record<string,string>={revision_conflict:'研究状态已更新，请刷新核对后再试。',request_conflict:'这次提交与先前请求不一致，请重新确认后再试。',not_found:'没有找到这项研究或资料，请核对地址。',capability_denied:'当前操作不被允许，请刷新核对状态。'};if(code&&messages[code])return messages[code];if(/[\u3400-\u9fff]/.test(error.message))return error.message;}
+ return '请求未完成，请核对输入和当前状态后重试。';
+}
 function rootPage(){const main=shell();main.className='create-page';main.innerHTML='<section class="intro"><p class="eyebrow">从问题，到有依据的结论</p><h1>把问题<br><em>研究清楚。</em></h1><p class="intro-copy">先广泛收集，再核对、留存与分析。<br>每一份报告，都能回到它所依据的资料。</p></section><section class="compose-card"><form id="create-form"><label for="question">你想研究什么？</label><textarea id="question" rows="6" maxlength="12000" required placeholder="描述一个需要做决定、比较方案，或深入理解的问题。"></textarea><details id="options"><summary>补充网址与研究范围 <span>可选</span></summary><label for="seed-urls">已有线索 <small>每行一个公开网页，最多20个</small></label><textarea id="seed-urls" rows="3" placeholder="https://…"></textarea><label for="scope">背景、范围与完成标准</label><textarea id="scope" rows="3" maxlength="4000" placeholder="例如：团队背景、关注的时间范围、希望比较哪些选择……"></textarea></details><div class="resource-note"><span class="dot"></span>公开网页 · 每轮最多20个候选 · 最多3轮补查 · 最长30分钟处理</div><div id="create-error"></div><div class="form-bottom"><p>资料不足时会明确说明，<br>也可以补充网址继续。</p><button class="primary" type="submit">开始研究 <span aria-hidden="true">↗</span></button></div></form></section><section class="method-preview"><span><b>01</b> 发现与留存</span><span><b>02</b> 整理与分析</span><span><b>03</b> 报告与溯源</span></section>';
  const question=main.querySelector<HTMLTextAreaElement>('#question')!,urls=main.querySelector<HTMLTextAreaElement>('#seed-urls')!,scope=main.querySelector<HTMLTextAreaElement>('#scope')!;question.value=draft.question;urls.value=draft.urls;scope.value=draft.scope;if(draft.urls||draft.scope)main.querySelector<HTMLDetailsElement>('#options')!.open=true;
  for(const input of [question,urls,scope])input.addEventListener('input',()=>{draft={question:question.value,urls:urls.value,scope:scope.value,key:crypto.randomUUID()};});
