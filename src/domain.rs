@@ -709,7 +709,7 @@ pub fn definition(root: &Path) -> Result<Definition> {
     Definition::load(
         root.join("resources/research.bundle.json"),
         &BTreeMap::from([(
-            "inquiry-deep-research@0.3.2".into(),
+            "inquiry-deep-research@0.3.3".into(),
             root.join("skills/inquiry-deep-research"),
         )]),
     )
