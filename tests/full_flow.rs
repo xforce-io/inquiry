@@ -40,6 +40,8 @@ impl Executor for SyntheticExecutor {
         tools: Arc<dyn ToolBridge>,
         _: CancellationToken,
     ) -> ExecutionOutcome {
+        let tools: Arc<dyn ToolBridge> =
+            Arc::new(inquiry::budget::BudgetBridge::new(tools, &inv.state_id));
         let result:Result<()> = async {
    let (slot,out)=match inv.state_id.as_str(){
     "scope"=>("plan",json!({"subquestions":["Synthetic fixture"],"search_queries":["Synthetic fixture"],"stop_reason":"Synthetic only"})),
@@ -54,7 +56,11 @@ impl Executor for SyntheticExecutor {
     "catalogue"=>("catalogue",json!({"groups":[{"topic":"Synthetic fixture","source_ids":["r1s1"]}],"gaps":[],"limitations":[LIMIT],"decision":"ready"})),
     "analyze"=>{
      let snapshot=inv.artifacts.iter().find(|a|a.slot=="capture.snapshot.r1s1").expect("attachments must be explicitly authorized");
-     let got=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await?;let got=&got["result"];
+     let mut got=Value::Null;
+     for _ in 0..78 { got=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await?; }
+     let refused=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await.unwrap_err();
+     assert_eq!(refused.path,"/inquiry/tool_budget");
+     let got=&got["result"];
      ("analysis",json!({"evidence":[{"id":"e1","artifact_id":got["artifact_id"],"sha256":got["sha256"],"paragraph":got["paragraphs"][0]["paragraph"],"quote":"Synthetic"}],"judgments":[{"text":"Synthetic fixture only, not actual research","support":["e1"],"counter":[],"limitations":[LIMIT]}],"gaps":[],"decision":"ready"}))
     },
     "report"=>{
@@ -91,7 +97,7 @@ async fn six_stages_accept_exact_evidence_while_preserving_known_limitations() {
         .tools
         .insert("inquiry.fetch".into(), Arc::new(SyntheticFetch));
     let rt = Runtime::open(
-        RuntimeOptions::new(root.path().join("store")),
+        inquiry::budget::runtime_options(root.path().join("store")),
         vec![d],
         bindings,
     )

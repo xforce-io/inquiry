@@ -33,7 +33,7 @@ impl ToolBridge for ObservedBridge {
         let result = self.inner.call(id, args).await;
         let outcome = match &result {
             Ok(v) if id == "artifact.read" => {
-                json!({"artifact":v["artifact"],"id":v["id"],"sha256":v["sha256"],"text_bytes":v["text"].as_str().map(str::len)})
+                json!({"artifact":v["artifact"],"id":v["id"],"sha256":v["sha256"],"text_bytes":v["text"].as_str().map(str::len),"_inquiry_budget":v["_inquiry_budget"]})
             }
             Ok(v) => json!({"value":v}),
             Err(e) => json!({"error":e}),
@@ -55,7 +55,7 @@ impl Executor for Audited {
         self.inner.capabilities()
     }
     fn identity(&self) -> Value {
-        json!({"host_adapter":"inquiry-audit@1","inner":self.inner.identity()})
+        json!({"host_adapter":"inquiry-audit@2","budget_policy":"analysis80-other40-reserve2@1","inner":self.inner.identity()})
     }
     async fn execute(
         &self,
@@ -66,6 +66,7 @@ impl Executor for Audited {
         let record = json!({"execution_id":inv.execution_id,"run_id":inv.run_id,"state":inv.state_id,"visit":inv.visit});
         let clock = Instant::now();
         let called = Arc::new(AtomicBool::new(false));
+        let tools = Arc::new(inquiry::budget::BudgetBridge::new(tools, &inv.state_id));
         let tools = Arc::new(ObservedBridge {
             inner: tools,
             called: called.clone(),
@@ -118,7 +119,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let bindings = inquiry::domain::bindings(&definition, executor);
     let runtime = Arc::new(
         Runtime::open(
-            RuntimeOptions::new(data.join("taskloop")),
+            inquiry::budget::runtime_options(data.join("taskloop")),
             vec![definition],
             bindings,
         )
