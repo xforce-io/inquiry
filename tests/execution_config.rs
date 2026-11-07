@@ -128,3 +128,19 @@ async fn invalid_trace_policy_cannot_start_the_runtime_or_native_execution() {
             .is_none()
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn framework_storage_symlinks_cannot_alias_native_configuration_or_sessions() {
+    for framework in ["milkie", "taskloop"] {
+        for native in ["native-config", "native-sessions"] {
+            let f = ConfigFixture::new();
+            std::os::unix::fs::symlink(
+                f.root.path().join(native),
+                f.root.path().join("data").join(framework),
+            )
+            .unwrap();
+            assert_eq!(f.error().path, "/execution/storage");
+        }
+    }
+}

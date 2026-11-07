@@ -166,6 +166,13 @@ impl ExecutionSetup {
         let data = data.canonicalize()?;
         // Neither an ancestor nor descendant can be allowed to double as framework storage.
         for store in [data.join("milkie"), data.join("taskloop")] {
+            let store = match std::fs::symlink_metadata(&store) {
+                Ok(_) => store
+                    .canonicalize()
+                    .map_err(|_| invalid("/execution/storage", "框架存储路径无法解析"))?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => store,
+                Err(_) => return Err(invalid("/execution/storage", "无法核对框架存储路径")),
+            };
             for native_dir in [&config_dir, &session_dir] {
                 if store.starts_with(native_dir) || native_dir.starts_with(&store) {
                     return Err(invalid(
