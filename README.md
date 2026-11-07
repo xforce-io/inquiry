@@ -20,7 +20,7 @@ cargo run --locked
 
 公开 HTTP(S) 获取每页正文上限1MiB、最多5次重定向，逐跳检查DNS并固定目标IP，拒绝内网、凭据URL和非80/443端口；一期不支持PDF/OCR或登录网页。规范化节选会标记截断。网络实现依据 [curl connect-to](https://curl.se/docs/manpage.html#--connect-to) 与 [IANA 特殊地址注册表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。网页是非可信文本，不能向Agent授予额外工具或权限。
 
-方法0.3.5按阶段限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
+方法0.3.6通过TaskLoop显式阶段策略限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
 
 原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。报告引用检查仅证明版本/定位/分析关系一致，内容质量仍需独立评价。`data/research-audit.ndjson` 记录实际执行尝试、可得用量和耗时，未知用量不补零。
 
@@ -41,3 +41,11 @@ npm run build --prefix web
 - [名词表](docs/glossary.md)
 - [前置领域设计](docs/design/1-minimal-research-loop.md)
 - [TaskLoop 已交付 PR #4](https://github.com/xforce-io/taskloop/pull/4)
+
+## Milkie迁移进度（Issue #3）
+
+当前分支已接入TaskLoop候选 `faae92602e175d7d876f45df20daed55fcfce3a1` 的公共预算接口，移除应用重复计数；阶段/检查时间继承原任务剩余，总处理上限仍为30分钟。依赖独立审查及双平台CI通过，但尚待创建PR所需人工批准，不称已合入版本。
+
+本地会话内增加只读诊断入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。未启用采集的实例明确返回disabled/不完整，不补造旧历史。入口沿用现有Host/Origin/session边界，不提供正文采集或独立监控页面。
+
+Milkie生产装配、专用原生配置核对与真实模型/浏览器验证仍未完成；当前启动器仍为原Codex执行路径，不能把新增SDK和确定性测试称为已迁移研究。新链路必须保持gpt-6-astra/high；两次旧Vertex失败和#2质量实验FAIL保持。详细规格见[迁移设计](docs/design/3-milkie-trace-research-migration.md)，验收地图见[执行与Trace](.agents/skills/verify-inquiry/features/execution.md)。

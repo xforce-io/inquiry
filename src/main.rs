@@ -33,7 +33,7 @@ impl ToolBridge for ObservedBridge {
         let result = self.inner.call(id, args).await;
         let outcome = match &result {
             Ok(v) if id == "artifact.read" => {
-                json!({"artifact":v["artifact"],"id":v["id"],"sha256":v["sha256"],"text_bytes":v["text"].as_str().map(str::len),"_inquiry_budget":v["_inquiry_budget"]})
+                json!({"artifact":v["artifact"],"id":v["id"],"sha256":v["sha256"],"text_bytes":v["text"].as_str().map(str::len),"_taskloop_budget":v["_taskloop_budget"]})
             }
             Ok(v) => json!({"value":v}),
             Err(e) => json!({"error":e}),
@@ -66,7 +66,6 @@ impl Executor for Audited {
         let record = json!({"execution_id":inv.execution_id,"run_id":inv.run_id,"state":inv.state_id,"visit":inv.visit});
         let clock = Instant::now();
         let called = Arc::new(AtomicBool::new(false));
-        let tools = Arc::new(inquiry::budget::BudgetBridge::new(tools, &inv.state_id));
         let tools = Arc::new(ObservedBridge {
             inner: tools,
             called: called.clone(),

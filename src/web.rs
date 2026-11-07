@@ -2,7 +2,7 @@
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State, rejection::QueryRejection},
     http::{HeaderValue, Request, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -27,6 +27,9 @@ pub fn router(host: Host) -> Router {
         .route("/health", get(health))
         .route("/research", post(start))
         .route("/research/{id}", get(research))
+        .route("/research/{id}/trace", get(trace))
+        .route("/research/{id}/trace/export", get(export_trace))
+        .route("/research/{id}/budgets", get(budgets))
         .route("/research/{id}/sources", post(sources))
         .route("/research/{id}/cancel", post(cancel))
         .route("/research/{id}/artifacts/{artifact}", get(artifact))
@@ -187,7 +190,7 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
 }
 async fn health() -> Json<Value> {
     Json(
-        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":"1c69bcf8a1bc0a7d9a4564bbe93f8b13d7317d04","method_version":"0.3.5"}),
+        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":crate::TASKLOOP_REVISION,"method_version":crate::METHOD_VERSION}),
     )
 }
 async fn research(State(host): State<Host>, Path(id): Path<String>) -> ApiResult {
@@ -282,5 +285,65 @@ async fn artifact(
         .then(|| String::from_utf8_lossy(&data.bytes).into_owned());
     Ok(Json(
         json!({"artifact":reference,"value":value,"text":text}),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiagnosticsQuery {
+    run_id: Option<String>,
+    #[serde(default)]
+    after: u64,
+    limit: u16,
+}
+fn trace_query(
+    query: std::result::Result<Query<DiagnosticsQuery>, QueryRejection>,
+) -> std::result::Result<TraceQuery, ApiError> {
+    let Query(q) = query.map_err(|_| {
+        Error::new(
+            "input_invalid",
+            "/trace/query",
+            "请提供1–1000的limit及有效查询参数",
+        )
+    })?;
+    Ok(TraceQuery {
+        run_id: q.run_id,
+        after: q.after,
+        limit: q.limit,
+    })
+}
+async fn trace(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    query: std::result::Result<Query<DiagnosticsQuery>, QueryRejection>,
+) -> ApiResult {
+    let page = host
+        .runtime
+        .trace(&id, trace_query(query)?, &Caller::local())?;
+    Ok(Json(serde_json::to_value(page).map_err(Error::from)?))
+}
+async fn export_trace(
+    State(host): State<Host>,
+    Path(id): Path<String>,
+    query: std::result::Result<Query<DiagnosticsQuery>, QueryRejection>,
+) -> std::result::Result<Response, ApiError> {
+    let bytes = host
+        .runtime
+        .export_trace(&id, trace_query(query)?, &Caller::local())?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=inquiry-trace.json",
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+async fn budgets(State(host): State<Host>, Path(id): Path<String>) -> ApiResult {
+    Ok(Json(
+        serde_json::to_value(host.runtime.budgets(&id, &Caller::local())?).map_err(Error::from)?,
     ))
 }
