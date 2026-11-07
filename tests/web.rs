@@ -86,7 +86,7 @@ impl Fixture {
             Definition::load(
                 bundle_path,
                 &std::collections::BTreeMap::from([(
-                    "inquiry-deep-research@0.3.4".into(),
+                    "inquiry-deep-research@0.3.6".into(),
                     repository.join("skills/inquiry-deep-research"),
                 )]),
             )
@@ -98,7 +98,7 @@ impl Fixture {
         let bindings = domain::bindings(&d, Arc::new(Controlled));
         let runtime = Arc::new(
             Runtime::open(
-                RuntimeOptions::new(root.path().join("store")),
+                inquiry::budget::runtime_options(root.path().join("store")),
                 vec![d],
                 bindings,
             )
@@ -364,5 +364,72 @@ async fn wait_expiry_has_partial_outcome_and_preserves_plan() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(done, "shortened fixture timeout was not observed");
+    f.runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn diagnostics_preserve_session_scope_query_errors_and_uncollected_history() {
+    let f = Fixture::new().await;
+    let id = f.start("diagnostics", "synthetic diagnostics").await;
+    f.waiting(&id).await;
+    for suffix in ["trace?limit=20", "trace/export?limit=20", "budgets"] {
+        let path = format!("/api/research/{id}/{suffix}");
+        let (status, _) = f
+            .request("GET", &path, None, false, None, "127.0.0.1:3410")
+            .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, value) = f
+            .request("GET", &path, None, true, None, "127.0.0.1:3410")
+            .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        if suffix == "budgets" {
+            assert_eq!(value["runs"].as_array().unwrap().len(), 2);
+            assert!(
+                value["runs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(
+                        |r| r["policy"]["submission_reserve"] == 2 && r["policy_source"] == "entry"
+                    )
+            );
+        } else {
+            assert_eq!(value["enabled"], false);
+            assert_eq!(value["complete"], false);
+            assert_eq!(value["issues"], json!(["disabled"]));
+        }
+        let (status, _) = f
+            .request(
+                "GET",
+                &format!("/api/research/missing/{suffix}"),
+                None,
+                true,
+                None,
+                "127.0.0.1:3410",
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    for suffix in [
+        "trace",
+        "trace?limit=0",
+        "trace?limit=1001",
+        "trace?limit=10&after=-1",
+        "trace?limit=10&unknown=true",
+        "trace/export?limit=0",
+    ] {
+        let (status, value) = f
+            .request(
+                "GET",
+                &format!("/api/research/{id}/{suffix}"),
+                None,
+                true,
+                None,
+                "127.0.0.1:3410",
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "input_invalid");
+    }
     f.runtime.shutdown().await.unwrap();
 }

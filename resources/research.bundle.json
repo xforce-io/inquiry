@@ -4,7 +4,7 @@
     "inquiry.scope": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -27,7 +27,7 @@
     "inquiry.discover": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -58,7 +58,7 @@
     "inquiry.capture": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -95,7 +95,7 @@
     "inquiry.catalogue": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -132,7 +132,7 @@
     "inquiry.analyze": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -175,7 +175,7 @@
     "inquiry.report": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.4"
+        "inquiry-deep-research@0.3.6"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -217,7 +217,7 @@
   },
   "flow": {
     "id": "inquiry.deep_research",
-    "version": "0.3.4",
+    "version": "0.3.6",
     "initial": "scope",
     "limits": {
       "max_transitions": 30,

@@ -54,7 +54,11 @@ impl Executor for SyntheticExecutor {
     "catalogue"=>("catalogue",json!({"groups":[{"topic":"Synthetic fixture","source_ids":["r1s1"]}],"gaps":[],"limitations":[LIMIT],"decision":"ready"})),
     "analyze"=>{
      let snapshot=inv.artifacts.iter().find(|a|a.slot=="capture.snapshot.r1s1").expect("attachments must be explicitly authorized");
-     let got=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await?;let got=&got["result"];
+     let mut got=Value::Null;
+     for _ in 0..78 { got=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await?; }
+     let refused=tools.call("inquiry.read_source",json!({"artifact_id":snapshot.id,"start":0,"limit":1})).await.unwrap_err();
+     assert_eq!(refused.path,"/budget/tools");
+     let got=&got["result"];
      ("analysis",json!({"evidence":[{"id":"e1","artifact_id":got["artifact_id"],"sha256":got["sha256"],"paragraph":got["paragraphs"][0]["paragraph"],"quote":"Synthetic"}],"judgments":[{"text":"Synthetic fixture only, not actual research","support":["e1"],"counter":[],"limitations":[LIMIT]}],"gaps":[],"decision":"ready"}))
     },
     "report"=>{
@@ -91,7 +95,7 @@ async fn six_stages_accept_exact_evidence_while_preserving_known_limitations() {
         .tools
         .insert("inquiry.fetch".into(), Arc::new(SyntheticFetch));
     let rt = Runtime::open(
-        RuntimeOptions::new(root.path().join("store")),
+        inquiry::budget::runtime_options(root.path().join("store")),
         vec![d],
         bindings,
     )
@@ -154,5 +158,22 @@ async fn six_stages_accept_exact_evidence_while_preserving_known_limitations() {
     let report: Value = serde_json::from_slice(&report.bytes).unwrap();
     assert_eq!(report["limitations"], json!([LIMIT]));
     assert_eq!(report["citations"].as_array().unwrap().len(), 1);
+    let budgets = rt.budgets(&id, &Caller::local()).unwrap();
+    assert_eq!(budgets.runs.len(), 6);
+    assert_eq!(budgets.task_limits.max_active_ms, 1_800_000);
+    for run in budgets.runs {
+        assert_eq!(run.policy_source, "entry");
+        assert_eq!(run.policy.submission_reserve, 2);
+        assert_eq!(run.policy.max_run_ms, None);
+        assert_eq!(run.policy.max_check_ms, None);
+        if run.state_id == "analyze" {
+            assert_eq!(run.effective_tool_calls, 80);
+            assert_eq!(run.calls_used, 79);
+            assert_eq!(run.calls_rejected, 1);
+            assert!(run.limits_hit.contains(&BudgetLimit::ExplorationCalls));
+        } else {
+            assert_eq!(run.effective_tool_calls, 40);
+        }
+    }
     rt.shutdown().await.unwrap();
 }

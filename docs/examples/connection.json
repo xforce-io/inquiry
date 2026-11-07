@@ -1,0 +1,8 @@
+{
+  "contractVersion": 1,
+  "fields": {
+    "transport": "agent-cli",
+    "runtime": "codex",
+    "model": "gpt-6-astra"
+  }
+}
