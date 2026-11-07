@@ -5,5 +5,5 @@ pub mod net;
 mod search;
 pub mod web;
 
-pub const TASKLOOP_REVISION: &str = "47e8c9843e12edc4e3328a080d77c9dea340ba30";
+pub const TASKLOOP_REVISION: &str = "3f86802f3d564ca660f507917e5a70a049d86718";
 pub const METHOD_VERSION: &str = "0.3.7";
