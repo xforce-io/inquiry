@@ -7,9 +7,9 @@ description: 在本地真实 Inquiry 上验证研究、可靠性、质量实验�
 
 ## Launch
 
-仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；不复制登录凭据。实际研究固定 gpt-6-astra/high，模型不回退。
+仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录仅由宿主按本轮明确授权准备于测试专用目录，应用不复制或自动发现全局凭据。实际研究固定 gpt-6-astra/high，模型不回退。
 
-Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；配置通过不代表账号/模型就绪。Milkie当前固定候选275a917，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked，不复制全局登录、不用本机401夹具当报告验收。
+Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；配置通过不代表账号/模型就绪。Milkie当前固定候选275a917，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked；宿主仅在用户明确授权后准备专用登录，不用本机401夹具当报告验收。
 
 `INQUIRY_DATA_DIR`指向本次专用私有目录，`INQUIRY_PORT`默认3410，运行 `INQUIRY_EXECUTION_CONFIG=<绝对路径> cargo run --locked`。只监听127.0.0.1，不部署公网。旧#2直接Codex启动方式只用于原历史证据的版本对照，不用于证明新链路。
 
@@ -25,7 +25,7 @@ Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置�
 
 读取 [功能地图](features/README.md)，按对应文件逐项操作。Web 使用 ego-browser 技能/真实浏览器，创建、点击、刷新、面板关闭通过实际界面完成；接口检查仅用来核对持久化，不代替驾驶。
 
-仅#2原质量实验要求demo后3份无工具gpt-6-astra/max基线及两上下文盲评；原两轮FAIL保留，不由#3重跑。#3按其L2 v0.2的S1.A1/S1.A2/S2.A1/S2.A2执行同一真实研究及诊断/停止，固定prompt及人工介入全部保留。
+仅#2原质量实验要求demo后3份无工具gpt-6-astra/max基线及两上下文盲评；原两轮FAIL保留，不由#3重跑。#3按其L2 v0.3的S1.A1/S1.A2/S2.A1/S2.A2执行同一真实研究及诊断/停止，固定prompt及人工介入全部保留。
 
 浏览器异常先保留页面/截图再定位；修复后冻结新候选，核对影响和必要复验。不能改证据中的SHA冒充新跑。
 
