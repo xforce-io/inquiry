@@ -1,0 +1,18 @@
+{
+  "node": "/absolute/path/to/node",
+  "milkie_cli": "/absolute/path/to/milkie/dist/cli/index.js",
+  "connection_file": "/absolute/path/to/connection.json",
+  "config_dir": "/absolute/path/to/dedicated-codex-config",
+  "session_dir": "/absolute/path/to/dedicated-codex-sessions",
+  "trace": {
+    "policy_id": "host-selected-policy-v1",
+    "max_events_per_run": 1000,
+    "max_bytes_per_run": 1048576,
+    "source_max_events": 1000,
+    "source_max_bytes": 262144,
+    "max_total_events": 10000,
+    "max_total_bytes": 4194304,
+    "max_runs": 16,
+    "retention_ms": 60000
+  }
+}

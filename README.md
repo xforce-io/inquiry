@@ -6,12 +6,16 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、已登录的 Codex CLI **0.166.0**，账号能访问 `gpt-6-astra`。研究固定该模型/high，不做模型回退。TaskLoop 固定完整经审 SHA，Cargo.lock 已锁定。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（当前依赖候选 `275a9170f42ea94ffcdfdeb4bec7cc702cae27f6`）。研究仍固定 `gpt-6-astra/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。TaskLoop精确候选由Cargo.toml/Cargo.lock固定，当前依赖尚待PR人工门，不称已合入版本。
+
+宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，所有字段必填。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`是提前准备、互不包含且不与框架存储重叠的专用目录。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
+
+专用`config_dir/config.toml`必须显式设置 `model_reasoning_effort = "high"` 且不选择覆盖profile；原生登录由宿主在该目录准备，应用不复制、不读取或回显`auth.json`。配置通过只说明可装配，登录、CLI版本和模型权限仍由实际执行确认。Codex可执行文件必须在宿主PATH中；不自动替换全局安装。
 
 ```sh
 npm ci --prefix web
 VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web
-cargo run --locked
+INQUIRY_EXECUTION_CONFIG=/absolute/path/execution.json cargo run --locked
 ```
 
 打开 http://127.0.0.1:3410 。只监听本地，不是多用户托管服务。`INQUIRY_PORT` 可指定非零端口，`INQUIRY_DATA_DIR` 可指定私有工作目录，默认为 `data/`。取消请求与取消确认分开；退出使用正常中断并等待执行器停止。刷新原研究地址可恢复视图，不自动重新执行未知工作。
@@ -22,7 +26,7 @@ cargo run --locked
 
 方法0.3.6通过TaskLoop显式阶段策略限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
 
-原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。报告引用检查仅证明版本/定位/分析关系一致，内容质量仍需独立评价。`data/research-audit.ndjson` 记录实际执行尝试、可得用量和耗时，未知用量不补零。
+原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。报告引用检查仅证明版本/定位/分析关系一致，内容质量仍需独立评价。旧`research-audit.ndjson`原样保留；新执行诊断由TaskLoop统一元数据Trace与预算事实承接，不再另写原始工具正文日志。原生功能会话仍位于宿主提供的专用会话目录，不受Trace TTL代删；未知用量不补零。
 
 ## 验证与状态
 
@@ -42,10 +46,12 @@ npm run build --prefix web
 - [前置领域设计](docs/design/1-minimal-research-loop.md)
 - [TaskLoop 已交付 PR #4](https://github.com/xforce-io/taskloop/pull/4)
 
-## Milkie迁移进度（Issue #3）
+## 执行诊断与迁移状态（Issue #3）
 
-当前分支已接入TaskLoop候选 `faae92602e175d7d876f45df20daed55fcfce3a1` 的公共预算接口，移除应用重复计数；阶段/检查时间继承原任务剩余，总处理上限仍为30分钟。依赖独立审查及双平台CI通过，但尚待创建PR所需人工批准，不称已合入版本。
+阶段策略由TaskLoop强制，分析80、其它40、最后2次仅允许产物提交；失败准入扣额，拒绝探索不吃提交保留。阶段/检查时间显式继承原任务剩余，任务active上限仍30分钟。方法0.3.6的`_taskloop_budget`元数据不进入业务回执/产物。
 
-本地会话内增加只读诊断入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。未启用采集的实例明确返回disabled/不完整，不补造旧历史。入口沿用现有Host/Origin/session边界，不提供正文采集或独立监控页面。
+本地会话内的只读入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。旧未采集实例返回未知/disabled或缺口，不补造历史。Host/Origin/session边界保持，不提供正文采集或独立监控页面。
 
-Milkie生产装配、专用原生配置核对与真实模型/浏览器验证仍未完成；当前启动器仍为原Codex执行路径，不能把新增SDK和确定性测试称为已迁移研究。新链路必须保持gpt-6-astra/high；两次旧Vertex失败和#2质量实验FAIL保持。详细规格见[迁移设计](docs/design/3-milkie-trace-research-migration.md)，验收地图见[执行与Trace](.agents/skills/verify-inquiry/features/execution.md)。
+启动器已使用MilkieExecutor并开启宿主显式容量/保留的metadata-only治理；SIGINT/SIGTERM及HTTP服务异常均等待Runtime停止。真实原生Codex+实际Milkie+本机401端点测试核对请求high、失败关联、原生取消和正常关闭；该端点没有真实模型或账号，不代表真实研究验收。
+
+真实Vertex报告/引用与浏览器迁移验收仍未完成；两次旧Vertex失败和#2质量实验FAIL保持，不启动第三轮SOTA实验。详细规格见[迁移设计](docs/design/3-milkie-trace-research-migration.md)，验收地图见[执行与Trace](.agents/skills/verify-inquiry/features/execution.md)。

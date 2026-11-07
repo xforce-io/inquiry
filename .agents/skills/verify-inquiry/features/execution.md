@@ -1,6 +1,6 @@
 # 执行迁移与 Trace 关联（Issue #3 S2）
 
-标准：`docs/design/3-milkie-trace-research-migration.md` v0.1 §11，S2.A1/S2.A2。这是拟交付路径的验收地图，不能把登记当实现或验证通过。
+标准：`docs/design/3-milkie-trace-research-migration.md` v0.2 §11，S2.A1/S2.A2。本文件定义验收路径，不能把登记或确定性测试当完整产品验收通过。
 
 1. 沿研究页的同一 ExecutionId，经本地会话保护的 `/api/research/{id}/trace` 查询阶段、Agent、工具及检查；核对 source 关联、最后活动、耗时、完整性缺口；分页/增量按 TaskLoop 公开游标继续。
 2. 经 `/trace/export` 导出有界分页，再经 `/budgets` 核对当前与历史阶段的有效预算及来源。不得读内部 SQLite/JSONL、另造状态或用工具数推算模型迭代。
@@ -9,3 +9,8 @@
 5. 记录 TaskLoop/Milkie/Inquiry SHA、实际模型/配置来源及运行耗时；未知用量不补0。原 `research-audit.ndjson` 历史不删，不将它当新 Trace 事实源。
 
 配置/凭据未齐、gpt-6-astra/high有效设置未核实时保持 blocked；不复制全局登录，不启动第三轮SOTA质量实验。浏览器创建、引用、关闭、刷新见 research.md，停止/补资料见 reliability.md。
+
+## 配置与原生失败/停止边界
+
+- `cargo test --locked --offline --test execution_config`：显式路径/原生high/固定模型、无配置内容回显、非法策略不装配；通过仅表示配置可用，不表示已登录。
+- `MILKIE_NODE=<固定Node> MILKIE_CLI=<固定Milkie构建> INQUIRY_NATIVE_CODEX_DIR=<Codex0.166.0所在目录> cargo test --locked --offline --test native_milkie -- --ignored --nocapture`：实际生产启动器/Sidecar/原生Codex连接本机401端点，核对high、失败元数据Trace、第二请求取消/隔离及SIGTERM退出。仅模拟凭据与拒绝端点，无真实模型成功；不得代替S1报告与S2同一真实研究关联。

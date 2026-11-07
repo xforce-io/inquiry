@@ -12,7 +12,7 @@
 
 ## Issue #3 迁移验收
 
-事实源：[Issue #3](https://github.com/xforce-io/inquiry/issues/3)、[L2 v0.1](../../../../docs/design/3-milkie-trace-research-migration.md)。上述 #2 S4 失败及原协议保持，不在 #3 重新编号或宣称通过。
+事实源：[Issue #3](https://github.com/xforce-io/inquiry/issues/3)、[L2 v0.2](../../../../docs/design/3-milkie-trace-research-migration.md)。上述 #2 S4 失败及原协议保持，不在 #3 重新编号或宣称通过。
 
 | Story | 主要功能 | 必需路径及关联 |
 |---|---|---|
