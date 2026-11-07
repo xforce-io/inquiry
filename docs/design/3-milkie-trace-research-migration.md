@@ -1,6 +1,6 @@
 # #3 Milkie 执行迁移与研究 Trace 闭环
 
-版本：v0.2（Draft）。[Issue #3](https://github.com/xforce-io/inquiry/issues/3)。L1: write（Issue 评论概要）；L2: write（本文件，遵循用户指定十三节、唯一详细事实源）。产品依据是本会话确认的 Milkie 适配、TaskLoop 统一 Trace 治理及 Epic S7；沿用 #2 创建/报告/引用路径，不新增监控页面、不改变研究质量门槛。本票包含尚未合入的研究应用基线 d028d69，不代表批准合入 #2。
+版本：v0.3（Draft）。[Issue #3](https://github.com/xforce-io/inquiry/issues/3)。L1: write（Issue 评论概要）；L2: write（本文件，遵循用户指定十三节、唯一详细事实源）。产品依据是本会话确认的 Milkie 适配、TaskLoop 统一 Trace 治理及 Epic S7；沿用 #2 创建/报告/引用路径，不新增监控页面、不改变研究质量门槛。本票包含尚未合入的研究应用基线 d028d69，不代表批准合入 #2。
 
 ## 1 背景
 
@@ -56,7 +56,7 @@ S2 为现有本地会话保护下的只读诊断 API：按研究 ID 查询分页
 
 主路径：启动前核对配置/固定版本与来源 → 注册 MilkieExecutor/预算/Trace 策略 → 创建研究 → 真实 Agent 调宿主工具 → 原领域 gate 接受产物 → 报告和引用展示；诊断以同 ExecutionId 查询公共 Trace 与 budgets。
 
-失败路径：配置不支持/版本不匹配不降级；429、网页失败、等待补网址如实保留；取消先 cancelling 再确认，StopUnknown 不叫已停；Trace采集故障依据TaskLoop返回完整性，不替代业务结果。退出（SIGINT/SIGTERM及HTTP服务异常）等待 Runtime.shutdown，不能仅终止Web就宣称原生执行已停。
+失败路径：配置不支持/版本不匹配不降级；429、网页失败、等待补网址如实保留；取消先 cancelling 再确认，StopUnknown 不叫已停；Trace采集故障依据TaskLoop返回完整性，不替代业务结果。退出（SIGINT/SIGTERM及HTTP服务异常）等待 Runtime.shutdown；已确认的原生业务结果与有界观测补读分离，关闭等待采集资源结束后再清未刷盘标记。不能仅终止Web就宣称原生执行已停。
 
 ## 7 模块
 
@@ -66,7 +66,7 @@ S2 为现有本地会话保护下的只读诊断 API：按研究 ID 查询分页
 
 本地 HTTP 只读入口拟为 `/api/research/{id}/trace`、`/trace/export`、`/budgets`，沿用既有 host/origin/session 保护与 Caller::local；研究不存在不得读其它实例内容。Trace 参数/游标直接映射公开 TraceQuery，返回 TaskLoop 版本化结构，导出按页有界。无新公开 CLI，无正文内容读取入口（本票仅元数据模式）。
 
-启动通过 `INQUIRY_EXECUTION_CONFIG` 指定绝对JSON文件，字段为 node、milkie_cli、connection_file、config_dir、session_dir、trace；trace含 policy_id、max_events_per_run、max_bytes_per_run、source_max_events、source_max_bytes、max_total_events、max_total_bytes、max_runs、retention_ms，均必填，无容量/TTL默认。路径必须存在且为相应文件/目录，原生config/session互不包含且不与框架store重叠。连接只接受contractVersion=1及fields.transport=agent-cli/runtime=codex/model=gpt-6-astra；不接收env或隐式模型来源。原生config.toml须high且无profile覆盖，解析失败不输出内容。配置/连接/原生设置摘要进入宿主绑定。示例与当前启动契约见README和docs/examples，示例数值不是生产决定；不在程序中自动找全局登录/复制凭据。TaskLoop/Milkie 精确依赖 SHA 及构建身份进入验收记录，health 不继续谎报旧依赖 SHA。配置不能改变已锁定研究模型而不报告；gpt-6-astra/high 的原生有效设置须核对。
+启动通过 `INQUIRY_EXECUTION_CONFIG` 指定绝对JSON文件，字段为 node、milkie_cli、connection_file、config_dir、session_dir、trace；trace含 policy_id、max_events_per_run、max_bytes_per_run、source_max_events、source_max_bytes、max_total_events、max_total_bytes、max_runs、retention_ms，均必填，无容量/TTL默认。路径必须存在且为相应文件/目录，原生config/session互不包含且不与框架store重叠；已存在框架存储目录须先解析符号链接后的真实位置，悬空或不可解析路径拒绝。连接只接受contractVersion=1及fields.transport=agent-cli/runtime=codex/model=gpt-6-astra；不接收env或隐式模型来源。原生config.toml须high且无profile覆盖，解析失败不输出内容。配置/连接/原生设置摘要进入宿主绑定。示例与当前启动契约见README和docs/examples，示例数值不是生产决定；不在程序中自动找全局登录/复制凭据。TaskLoop/Milkie 精确依赖 SHA 及构建身份进入验收记录，health 不继续谎报旧依赖 SHA。配置不能改变已锁定研究模型而不报告；gpt-6-astra/high 的原生有效设置须核对。
 
 ## 9 边界
 
