@@ -33,7 +33,7 @@ impl Executor for Controlled {
             ),
             "discover" => (
                 "candidates",
-                json!({"items":[],"stop_reason":"synthetic no-source case"}),
+                json!({"queries":[],"items":[],"stop_reason":"synthetic no-source case"}),
             ),
             _ => {
                 return ExecutionOutcome::Failed {
@@ -86,7 +86,7 @@ impl Fixture {
             Definition::load(
                 bundle_path,
                 &std::collections::BTreeMap::from([(
-                    "inquiry-deep-research@0.3.6".into(),
+                    "inquiry-deep-research@0.3.7".into(),
                     repository.join("skills/inquiry-deep-research"),
                 )]),
             )

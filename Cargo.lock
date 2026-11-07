@@ -1687,7 +1687,7 @@ dependencies = [
 [[package]]
 name = "taskloop"
 version = "0.1.0"
-source = "git+https://github.com/xforce-io/taskloop.git?rev=967e78224786c1a8221f7fb266ce28eb89d6aee6#967e78224786c1a8221f7fb266ce28eb89d6aee6"
+source = "git+https://github.com/xforce-io/taskloop.git?rev=3764aaedca010a792dff0defc61e1b1868586e00#3764aaedca010a792dff0defc61e1b1868586e00"
 dependencies = [
  "async-trait",
  "chrono",
