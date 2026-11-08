@@ -38,11 +38,43 @@
     "stop_reason": {
       "type": "string",
       "minLength": 1
+    },
+    "queries": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "receipt_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "discovered",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "query",
+          "receipt_id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "items",
-    "stop_reason"
+    "stop_reason",
+    "queries"
   ],
   "additionalProperties": false
 }

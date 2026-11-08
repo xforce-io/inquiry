@@ -2,7 +2,8 @@ pub mod budget;
 pub mod domain;
 pub mod execution;
 pub mod net;
+mod search;
 pub mod web;
 
-pub const TASKLOOP_REVISION: &str = "967e78224786c1a8221f7fb266ce28eb89d6aee6";
-pub const METHOD_VERSION: &str = "0.3.6";
+pub const TASKLOOP_REVISION: &str = "3f86802f3d564ca660f507917e5a70a049d86718";
+pub const METHOD_VERSION: &str = "0.3.7";

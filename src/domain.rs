@@ -167,7 +167,7 @@ pub fn normalize(body: &[u8], content_type: &str) -> Result<Normalized> {
     })
 }
 
-fn search_results(html: &str) -> Vec<Value> {
+pub(crate) fn search_results(html: &str) -> Vec<Value> {
     let doc = Html::parse_document(html);
     let snippets = Selector::parse(".snippet[data-type=web]").expect("constant selector");
     let anchors = Selector::parse("a[href]").expect("constant selector");
@@ -204,38 +204,7 @@ fn search_results(html: &str) -> Vec<Value> {
     }
     results
 }
-pub struct Search;
-#[async_trait]
-impl DomainTool for Search {
-    fn spec(&self) -> ToolSpec {
-        ToolSpec{id:"inquiry.search".into(),description:"Discover public source URLs via actual search. A result is not a fetched or verified page. Use at most eight searches in this entry, then submit candidates, even if empty.".into(),input_schema:json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":300}},"required":["query"],"additionalProperties":false})}
-    }
-    async fn call(&self, c: ToolContext, args: Value) -> Result<ToolOutput> {
-        let query = text(&args, "query")?;
-        let mut url = url::Url::parse("https://search.brave.com/search").expect("constant URL");
-        url.query_pairs_mut()
-            .append_pair("q", query)
-            .append_pair("source", "web");
-        let page = match crate::net::fetch(url.as_str(), &c).await {
-            Ok(p) if p.status == 200 => p,
-            Ok(p) => {
-                return Ok(ToolOutput::json(
-                    json!({"query":query,"results":[],"status":"unavailable","reason":format!("搜索HTTP状态{}",p.status)}),
-                ));
-            }
-            Err(e) => {
-                return Ok(ToolOutput::json(
-                    json!({"query":query,"results":[],"status":"unavailable","reason":e.reason}),
-                ));
-            }
-        };
-        let html = std::str::from_utf8(&page.body).map_err(|_| fault("搜索响应不是UTF-8"))?;
-        let results = search_results(html);
-        Ok(ToolOutput::json(
-            json!({"query":query,"status":if results.is_empty(){"unavailable"}else{"discovered"},"reason":if results.is_empty(){"未取得可解析的网页搜索结果；不得将挑战页视为来源"}else{"搜索发现不等于获取或内容核验"},"results":results,"searched_at":chrono::Utc::now().to_rfc3339(),"search_url":page.final_url,"provider":"brave-html"}),
-        ))
-    }
-}
+pub use crate::search::Search;
 pub struct Fetch;
 #[async_trait]
 impl DomainTool for Fetch {
@@ -434,6 +403,31 @@ pub fn check_domain(
         // The original question is immutable flow input, not model-authored plan data.
         "scope" => Ok("ready".into()),
         "discover" => {
+            let searches: Vec<_> = facts
+                .iter()
+                .filter(|f| f.tool_id == "inquiry.search")
+                .collect();
+            let queries = array(out, "queries")?;
+            let mut receipts = BTreeSet::new();
+            if queries.len() != searches.len() || queries.len() > 8 {
+                return Err(fault("查询记录必须完整覆盖本轮真实搜索回执，最多8条"));
+            }
+            for query in queries {
+                let id = text(query, "receipt_id")?;
+                if !receipts.insert(id)
+                    || !searches.iter().any(|f| {
+                        f.id == id
+                            && f.payload["query"] == query["query"]
+                            && f.payload["status"] == query["status"]
+                            && matches!(
+                                query["status"].as_str(),
+                                Some("discovered" | "unavailable")
+                            )
+                    })
+                {
+                    return Err(fault("查询词、状态或回执不属于本轮受信搜索事实"));
+                }
+            }
             let mut user_urls = BTreeSet::new();
             for v in inputs["seed_urls"].as_array().into_iter().flatten().chain(
                 signals
@@ -471,7 +465,18 @@ pub fn check_domain(
                     return Err(fault("候选没有真实发现依据"));
                 }
             }
-            Ok(if items.is_empty() {
+            Ok(if items.is_empty()
+                && !searches.is_empty()
+                && searches
+                    .iter()
+                    .all(|f| f.payload["status"] == "unavailable")
+            {
+                if visit < 3 && searches.iter().any(|f| f.payload["retryable"] == true) {
+                    "search_unavailable"
+                } else {
+                    "search_exhausted"
+                }
+            } else if items.is_empty() {
                 "need_input"
             } else {
                 "ready"
@@ -709,14 +714,17 @@ pub fn definition(root: &Path) -> Result<Definition> {
     Definition::load(
         root.join("resources/research.bundle.json"),
         &BTreeMap::from([(
-            "inquiry-deep-research@0.3.6".into(),
+            "inquiry-deep-research@0.3.7".into(),
             root.join("skills/inquiry-deep-research"),
         )]),
     )
 }
 pub fn bindings(d: &Definition, executor: Arc<dyn Executor>) -> HostBindings {
-    let tools: Vec<Arc<dyn DomainTool>> =
-        vec![Arc::new(Search), Arc::new(Fetch), Arc::new(ReadSource)];
+    let tools: Vec<Arc<dyn DomainTool>> = vec![
+        Arc::new(Search::default()),
+        Arc::new(Fetch),
+        Arc::new(ReadSource),
+    ];
     let mut b = HostBindings::default()
         .configuration_version("inquiry@0.1.0")
         .executor("research.agent", executor);
@@ -833,7 +841,7 @@ mod tests {
     #[test]
     fn discovery_requires_actual_origin_and_current_visit() {
         let inputs = json!({"seed_urls":["https://example.com/"]});
-        let mut out = json!({"items":[{"source_id":"r1s1","url":"https://example.com/","discovery_receipt_id":"user-input"}]});
+        let mut out = json!({"queries":[],"items":[{"source_id":"r1s1","url":"https://example.com/","discovery_receipt_id":"user-input"}]});
         assert_eq!(
             check_domain("discover", 1, &inputs, &out, &[], &[], &[]).unwrap(),
             "ready"
@@ -841,6 +849,80 @@ mod tests {
         assert!(check_domain("discover", 2, &inputs, &out, &[], &[], &[]).is_err());
         out["items"][0]["url"] = json!("https://invented.example/");
         assert!(check_domain("discover", 1, &inputs, &out, &[], &[], &[]).is_err());
+    }
+    #[test]
+    fn search_failure_waits_are_distinct_from_missing_user_input_and_receipts_cannot_be_forged() {
+        let mut receipt = ArtifactReceipt {
+            protocol_version: 1,
+            id: "actual-search".into(),
+            execution_id: "actual-execution".into(),
+            run_id: "actual-run".into(),
+            tool_id: "inquiry.search".into(),
+            occurred_at: "2026-11-08T00:00:00Z".into(),
+            request_sha256: "request".into(),
+            result_sha256: "result".into(),
+            payload: json!({"query":"focused gap","status":"unavailable","retryable":true,"results":[]}),
+        };
+        let out = json!({"items":[],"queries":[{"query":"focused gap","receipt_id":"actual-search","status":"unavailable"}]});
+        for (visit, expected) in [
+            (1, "search_unavailable"),
+            (2, "search_unavailable"),
+            (3, "search_exhausted"),
+        ] {
+            assert_eq!(
+                check_domain(
+                    "discover",
+                    visit,
+                    &json!({}),
+                    &out,
+                    &[],
+                    std::slice::from_ref(&receipt),
+                    &[]
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        receipt.payload["retryable"] = json!(false);
+        assert_eq!(
+            check_domain(
+                "discover",
+                1,
+                &json!({}),
+                &out,
+                &[],
+                std::slice::from_ref(&receipt),
+                &[]
+            )
+            .unwrap(),
+            "search_exhausted"
+        );
+        for (field, value) in [
+            ("query", "invented"),
+            ("receipt_id", "prior-visit"),
+            ("status", "discovered"),
+        ] {
+            let mut forged = out.clone();
+            forged["queries"][0][field] = json!(value);
+            assert!(
+                check_domain(
+                    "discover",
+                    1,
+                    &json!({}),
+                    &forged,
+                    &[],
+                    std::slice::from_ref(&receipt),
+                    &[]
+                )
+                .is_err()
+            );
+        }
+        let empty = json!({"items":[],"queries":[]});
+        assert!(check_domain("discover", 1, &json!({}), &empty, &[], &[receipt], &[]).is_err());
+        assert_eq!(
+            check_domain("discover", 1, &json!({}), &empty, &[], &[], &[]).unwrap(),
+            "need_input"
+        );
     }
     #[test]
     fn capture_checks_bytes_not_only_claimed_hashes() {

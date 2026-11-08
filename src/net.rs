@@ -20,6 +20,7 @@ pub struct Page {
     pub final_url: String,
     pub status: u16,
     pub content_type: String,
+    pub retry_after: Option<String>,
     pub body: Vec<u8>,
 }
 #[derive(Debug, Clone)]
@@ -337,6 +338,7 @@ pub async fn fetch(raw: &str, c: &ToolContext) -> Result<Page, FetchError> {
             final_url: url.to_string(),
             status,
             content_type: headers.get("content-type").cloned().unwrap_or_default(),
+            retry_after: headers.get("retry-after").cloned(),
             body,
         });
     }

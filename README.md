@@ -24,7 +24,7 @@ INQUIRY_EXECUTION_CONFIG=/absolute/path/execution.json cargo run --locked
 
 公开 HTTP(S) 获取每页正文上限1MiB、最多5次重定向，逐跳检查DNS并固定目标IP，拒绝内网、凭据URL和非80/443端口；一期不支持PDF/OCR或登录网页。规范化节选会标记截断。网络实现依据 [curl connect-to](https://curl.se/docs/manpage.html#--connect-to) 与 [IANA 特殊地址注册表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。网页是非可信文本，不能向Agent授予额外工具或权限。
 
-方法0.3.6通过TaskLoop显式阶段策略限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
+方法0.3.7通过TaskLoop显式阶段策略限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
 
 原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。报告引用检查仅证明版本/定位/分析关系一致，内容质量仍需独立评价。旧`research-audit.ndjson`原样保留；新执行诊断由TaskLoop统一元数据Trace与预算事实承接，不再另写原始工具正文日志。原生功能会话仍位于宿主提供的专用会话目录，不受Trace TTL代删；未知用量不补零。
 
@@ -48,10 +48,12 @@ npm run build --prefix web
 
 ## 执行诊断与迁移状态（Issue #3）
 
-阶段策略由TaskLoop强制，分析80、其它40、最后2次仅允许产物提交；失败准入扣额，拒绝探索不吃提交保留。阶段/检查时间显式继承原任务剩余，任务active上限仍30分钟。方法0.3.6的`_taskloop_budget`元数据不进入业务回执/产物。
+阶段策略由TaskLoop强制，分析80、其它40、最后2次仅允许产物提交；失败准入扣额，拒绝探索不吃提交保留。阶段/检查时间显式继承原任务剩余，任务active上限仍30分钟。方法0.3.7的`_taskloop_budget`元数据不进入业务回执/产物。
 
 本地会话内的只读入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。旧未采集实例返回未知/disabled或缺口，不补造历史。Host/Origin/session边界保持，不提供正文采集或独立监控页面。
 
 启动器已使用MilkieExecutor并开启宿主显式容量/保留的metadata-only治理；SIGINT/SIGTERM及HTTP服务异常均等待Runtime停止。真实原生Codex+实际Milkie+本机401端点测试核对请求high、失败关联、原生取消和正常关闭；该端点没有真实模型或账号，不代表真实研究验收。
 
 真实Vertex报告/引用与浏览器迁移验收仍未完成；两次旧Vertex失败和#2质量实验FAIL保持，不启动第三轮SOTA实验。详细规格见[迁移设计](docs/design/3-milkie-trace-research-migration.md)，验收地图见[执行与Trace](.agents/skills/verify-inquiry/features/execution.md)。
+
+方法0.3.7的来源发现显式读取授权的历史缺口、候选查询和资料索引，首次无历史也可运行。搜索工具每次最多3次获取尝试、总等待30秒，遵守Retry-After并共享冷却；持续不可用显示专门等待，60秒后自动继续，仍共享原每状态3次访问上限。页面可停止，耗尽后保留资料并明确服务不可用；真正缺少用户资料沿用补来源入口。查询记录由实际搜索回执核对，旧实例和质量实验结果不改写。

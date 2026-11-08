@@ -27,6 +27,7 @@ impl Executor for SearchProbe {
                 json!({"subquestions":["synthetic producer probe"],"search_queries":["Playwright locators auto waiting official documentation"],"stop_reason":"public search tool only; no model/report"}),
             )
         } else {
+            let mut queries = Vec::new();
             for query in [
                 "Playwright locators auto waiting official documentation",
                 "WebArena benchmark browser agents official",
@@ -40,11 +41,16 @@ impl Executor for SearchProbe {
                         };
                     }
                 };
+                queries.push(json!({"query":query,"receipt_id":result["receipt_id"],"status":result["result"]["status"]}));
+                let unavailable = result["result"]["status"] == "unavailable";
                 self.0.lock().unwrap().push(result);
+                if unavailable {
+                    break;
+                }
             }
             (
                 "candidates",
-                json!({"items":[],"stop_reason":"synthetic producer probe intentionally stops before capture/report"}),
+                json!({"queries":queries,"items":[],"stop_reason":"synthetic producer probe intentionally stops before capture/report"}),
             )
         };
         match tools

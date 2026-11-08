@@ -4,7 +4,7 @@
     "inquiry.scope": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -27,7 +27,7 @@
     "inquiry.discover": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -39,16 +39,42 @@
       "gate": "inquiry.discover.gate",
       "outcomes": [
         "ready",
-        "need_input"
+        "need_input",
+        "search_unavailable",
+        "search_exhausted"
       ],
       "requires": [
         {
           "state": "scope",
           "slot": "plan",
           "selection": "latest"
+        },
+        {
+          "state": "catalogue",
+          "slot": "catalogue",
+          "selection": "latest",
+          "optional": true
+        },
+        {
+          "state": "analyze",
+          "slot": "analysis",
+          "selection": "latest",
+          "optional": true
+        },
+        {
+          "state": "discover",
+          "slot": "candidates",
+          "selection": "all",
+          "optional": true
+        },
+        {
+          "state": "capture",
+          "slot": "materials",
+          "selection": "all",
+          "optional": true
         }
       ],
-      "instruction": "按问题和已接受计划广泛发现候选来源，保留检索回执与停止原因。",
+      "instruction": "读取计划与授权的整理/分析缺口、历史查询和资料索引；针对仍未补齐的缺口补查并避免重复查询。提交全部实际查询及回执；搜索暂不可用时及时提交真实状态，不连发余下查询。",
       "tools": [
         "artifact.read",
         "artifact.write",
@@ -58,7 +84,7 @@
     "inquiry.capture": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -95,7 +121,7 @@
     "inquiry.catalogue": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -132,7 +158,7 @@
     "inquiry.analyze": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -175,7 +201,7 @@
     "inquiry.report": {
       "executor": "research.agent",
       "skills": [
-        "inquiry-deep-research@0.3.6"
+        "inquiry-deep-research@0.3.7"
       ],
       "input_schema": "task-input.schema.json",
       "outputs": {
@@ -217,7 +243,7 @@
   },
   "flow": {
     "id": "inquiry.deep_research",
-    "version": "0.3.6",
+    "version": "0.3.7",
     "initial": "scope",
     "limits": {
       "max_transitions": 30,
@@ -239,7 +265,9 @@
         "entry": "inquiry.discover",
         "accepted": {
           "ready": "capture",
-          "need_input": "await_sources"
+          "need_input": "await_sources",
+          "search_unavailable": "await_search",
+          "search_exhausted": "search_unavailable"
         },
         "rejected": "failed",
         "failed": "failed"
@@ -319,6 +347,23 @@
         "kind": "terminal",
         "status": "failed",
         "outcome": "execution_failed",
+        "requires": []
+      },
+      "await_search": {
+        "kind": "wait",
+        "signals": {
+          "sources.added": {
+            "schema": "sources-added.schema.json",
+            "target": "discover"
+          }
+        },
+        "timeout_seconds": 60,
+        "timeout_target": "discover"
+      },
+      "search_unavailable": {
+        "kind": "terminal",
+        "status": "completed",
+        "outcome": "search_unavailable",
         "requires": []
       }
     },
