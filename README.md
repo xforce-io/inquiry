@@ -6,7 +6,7 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（当前依赖候选 `275a9170f42ea94ffcdfdeb4bec7cc702cae27f6`）。研究仍固定 `gpt-6-astra/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。TaskLoop精确候选由Cargo.toml/Cargo.lock固定，当前依赖尚待PR人工门，不称已合入版本。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（当前依赖候选 `275a9170f42ea94ffcdfdeb4bec7cc702cae27f6`）。研究仍固定 `gpt-6-astra/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码仍固定 TaskLoop `3f86802`，尚未迁移到已合入的 Goal/DAG；精确依赖以 Cargo.toml/Cargo.lock 为准。
 
 宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，所有字段必填。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`是提前准备、互不包含且不与框架存储重叠的专用目录。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
 
@@ -37,7 +37,9 @@ cargo test --locked
 npm run build --prefix web
 ```
 
-确定性测试不是实际模型研究。产品仍在实现验证中，**真实研究闭环、质量对照、Web驾驶、独立审查和交付尚未完成**。质量实验遵循事先固定的协议，不宣称已优于SOTA；正式生成前必须封存输入与随机映射。
+确定性测试不是实际模型研究。研究集成分支 `feat/2-research-web-mvp` 已有真实六阶段报告、引用回溯、停止/隔离与 Web 驾驶证据，迁移 PR #4 和搜索恢复 PR #6 均已合入该分支；应用尚未进入 main。两轮质量对照均为 FAIL，第三轮为 BLOCKED，不宣称已优于直接生成。各证据仅支持其绑定候选及记录范围，不能当作当前 #7 新质量闭环已验收。
+
+`feat/7-deep-article-quality-loop` 承接已集成实现及深度文章产品草稿，推进独立评价、有界修订和 Goal/DAG 接入。设计与协议仍在完善；正式生成前必须冻结输入、模型、规则、预算与匿名映射，旧实验不改写。
 
 - [实现与验收 Issue #2](https://github.com/xforce-io/inquiry/issues/2)
 - [唯一实现 L2 与实验协议](docs/design/2-research-web-mvp.md)
