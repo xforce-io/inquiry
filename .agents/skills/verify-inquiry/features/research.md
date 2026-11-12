@@ -16,3 +16,7 @@
 ## Issue #3 新链路（S1.A1/S1.A2）
 
 依据 `docs/design/3-milkie-trace-research-migration.md` v0.2 §11。复用既有创建/阅读/引用/关闭/刷新路径，但必须由 TaskLoop→Milkie→真实Codex新链路生成本次六阶段报告，不能沿用旧报告。沿用冻结Vertex输入，登记为迁移功能复验；不启动第三轮SOTA质量比较。关联 execution.md 的同一研究 Trace、预算、版本与原始记录。缺专用模型环境或未成稿均不算通过。
+
+## Issue #7 / S1.A1、S1.A2
+
+从创建页提交固定复杂原问题与范围，查看必答点；确认原文不被计划摘要替换。空问题不受理且输入保留；对象有歧义时显示具体澄清问题，补充后原问题和signal关联均可追溯。工作图为scope/collect/analyze/supplement/synthesize/draft/review/revise，最终检查单列；旧六阶段仅用于旧记录。无需每次批准计划，不把搜索故障推给用户必须补网址。

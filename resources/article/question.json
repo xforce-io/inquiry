@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "$ref": "article-text"
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "additionalProperties": false
+}

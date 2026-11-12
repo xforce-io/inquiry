@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "maxProperties": 20,
+  "additionalProperties": {
+    "type": "object",
+    "properties": {
+      "body_sha256": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "base64": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "body_sha256",
+      "base64"
+    ],
+    "additionalProperties": false
+  }
+}

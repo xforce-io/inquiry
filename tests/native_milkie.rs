@@ -219,12 +219,20 @@ async fn native_high_effort_failure_and_cancel_preserve_trace_and_stop() {
         provider.calls.load(Ordering::SeqCst) > before,
         "native request never entered the held provider"
     );
+    let (_, _, held_view) = request(
+        port,
+        "GET",
+        &format!("/api/research/{held}"),
+        Some(cookie),
+        None,
+    )
+    .await;
     let (status, _, _) = request(
         port,
         "POST",
         &format!("/api/research/{held}/cancel"),
         Some(cookie),
-        Some(json!({"request_key":"cancel-native-held"})),
+        Some(json!({"request_key":"cancel-native-held","expected_revision":held_view["snapshot"]["revision"]})),
     )
     .await;
     assert_eq!(status, 200);

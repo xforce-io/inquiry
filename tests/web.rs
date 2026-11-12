@@ -13,6 +13,9 @@ use tower::ServiceExt;
 struct Controlled;
 #[async_trait]
 impl Executor for Controlled {
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
     fn capabilities(&self) -> ExecutorCapabilities {
         ExecutorCapabilities::MANAGED
     }
@@ -76,7 +79,9 @@ impl Fixture {
             std::fs::create_dir(&resources).unwrap();
             for entry in std::fs::read_dir(repository.join("resources")).unwrap() {
                 let p = entry.unwrap().path();
-                std::fs::copy(&p, resources.join(p.file_name().unwrap())).unwrap();
+                if p.is_file() {
+                    std::fs::copy(&p, resources.join(p.file_name().unwrap())).unwrap();
+                }
             }
             let bundle_path = resources.join("research.bundle.json");
             let mut bundle: Value =
@@ -432,4 +437,92 @@ async fn diagnostics_preserve_session_scope_query_errors_and_uncollected_history
         assert_eq!(value["code"], "input_invalid");
     }
     f.runtime.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn new_goal_host_reads_persisted_legacy_flow_but_refuses_writes() {
+    let f = Fixture::new().await;
+    let id = f.start("legacy-before-upgrade", "synthetic legacy").await;
+    let saved = f.waiting(&id).await;
+    f.runtime.shutdown().await.unwrap();
+    let Fixture {
+        _root: root,
+        runtime,
+        app,
+    } = f;
+    drop(app);
+    drop(runtime);
+    let bindings =
+        inquiry::orchestration::bindings(Arc::new(Controlled), "migration-fixture".into());
+    let (registry, options) =
+        inquiry::orchestration::registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
+    let runtime = Arc::new(
+        Runtime::open_orchestrated(
+            inquiry::budget::runtime_options(root.path().join("store")),
+            vec![],
+            bindings,
+            registry,
+            options,
+            None,
+        )
+        .await
+        .unwrap(),
+    );
+    let app = web::router(web::Host {
+        runtime: runtime.clone(),
+        definition_digest: String::new(),
+        port: 3410,
+        session: "synthetic-session".into(),
+        web_dir: root.path().join("web"),
+    });
+    let upgraded = Fixture {
+        _root: root,
+        runtime,
+        app,
+    };
+    let (status, view) = upgraded
+        .request(
+            "GET",
+            &format!("/api/research/{id}"),
+            None,
+            true,
+            None,
+            "127.0.0.1:3410",
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["read_only"], true);
+    assert_eq!(view["snapshot"]["inputs"]["question"], "synthetic legacy");
+    assert_eq!(view["snapshot"]["revision"], saved.revision);
+    let artifact = &saved.accepted_artifacts[0];
+    let (status, data) = upgraded
+        .request(
+            "GET",
+            &format!("/api/research/{id}/artifacts/{}", artifact.id),
+            None,
+            true,
+            None,
+            "127.0.0.1:3410",
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{data}");
+    assert_eq!(data["artifact"]["sha256"], artifact.sha256);
+    assert_eq!(data["value"]["subquestions"][0], "synthetic legacy");
+    for (path, body) in [
+        (
+            "cancel",
+            json!({"request_key":"legacy-stop","expected_revision":saved.revision}),
+        ),
+        (
+            "sources",
+            json!({"urls":["https://example.com/"],"request_key":"legacy-signal","expected_revision":saved.revision}),
+        ),
+    ] {
+        let (status, error) = upgraded
+            .post(&format!("/api/research/{id}/{path}"), body)
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{error}");
+        assert_eq!(error["code"], "read_only");
+    }
+    upgraded.runtime.shutdown().await.unwrap();
 }

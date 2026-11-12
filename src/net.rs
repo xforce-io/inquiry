@@ -113,17 +113,26 @@ pub async fn checked_addresses(url: &Url) -> Result<Vec<IpAddr>, FetchError> {
         .host_str()
         .ok_or_else(|| denied("缺少主机名"))?
         .trim_matches(['[', ']']);
-    let port = url
-        .port_or_known_default()
-        .ok_or_else(|| denied("端口不允许"))?;
-    let answers = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::net::lookup_host((host, port)),
-    )
-    .await
-    .map_err(|_| unavailable("DNS查询超时"))?
-    .map_err(|_| unavailable("DNS查询失败"))?;
-    let mut ips: Vec<_> = answers.map(|a| a.ip()).collect();
+    let mut ips = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![ip]
+    } else if dns_mode()? == "cloudflare-doh" {
+        // Host explicitly chooses the resolver. Never fall back after denied answers.
+        let (a, aaaa) = tokio::try_join!(doh(host, 1), doh(host, 28))?;
+        a.into_iter().chain(aaaa).collect()
+    } else {
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| denied("端口不允许"))?;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::net::lookup_host((host, port)),
+        )
+        .await
+        .map_err(|_| unavailable("DNS查询超时"))?
+        .map_err(|_| unavailable("DNS查询失败"))?
+        .map(|a| a.ip())
+        .collect()
+    };
     ips.sort();
     ips.dedup();
     if ips.is_empty() {
@@ -133,6 +142,92 @@ pub async fn checked_addresses(url: &Url) -> Result<Vec<IpAddr>, FetchError> {
         return Err(denied("目标包含非公开网络地址，未发起获取"));
     }
     Ok(ips)
+}
+/// Explicit host network setting; default stays on the system resolver.
+pub fn dns_mode() -> Result<String, FetchError> {
+    match std::env::var("INQUIRY_DNS_MODE") {
+        Err(std::env::VarError::NotPresent) => Ok("system".into()),
+        Ok(mode) if matches!(mode.as_str(), "system" | "cloudflare-doh") => Ok(mode),
+        _ => Err(denied("INQUIRY_DNS_MODE只接受system或cloudflare-doh")),
+    }
+}
+fn doh_answers(bytes: &[u8], host: &str, kind: u64) -> Result<Vec<IpAddr>, FetchError> {
+    let value = taskloop::parse_unique(bytes).map_err(|_| unavailable("DoH响应不是有效JSON"))?;
+    if value["Status"] != 0
+        || value["TC"] != false
+        || value["Question"][0]["type"] != kind
+        || value["Question"][0]["name"]
+            .as_str()
+            .is_none_or(|s| !s.trim_end_matches('.').eq_ignore_ascii_case(host))
+    {
+        return Err(unavailable("DoH响应状态、完整性或查询身份不匹配"));
+    }
+    let Some(records) = value.get("Answer") else {
+        return Ok(vec![]);
+    };
+    let records = records
+        .as_array()
+        .ok_or_else(|| unavailable("DoH答案不是数组"))?;
+    let mut out = Vec::new();
+    for record in records {
+        if let Some(record_kind @ (1 | 28)) = record["type"].as_u64() {
+            let ip = record["data"]
+                .as_str()
+                .and_then(|s| s.parse::<IpAddr>().ok())
+                .ok_or_else(|| unavailable("DoH地址格式无效"))?;
+            if (record_kind == 1) != ip.is_ipv4() {
+                return Err(unavailable("DoH地址类型不匹配"));
+            }
+            out.push(ip);
+        }
+    }
+    Ok(out)
+}
+async fn doh(host: &str, kind: u64) -> Result<Vec<IpAddr>, FetchError> {
+    let mut url = Url::parse("https://cloudflare-dns.com/dns-query").expect("constant DoH URL");
+    url.query_pairs_mut()
+        .append_pair("name", host)
+        .append_pair("type", &kind.to_string());
+    let mut cmd = Command::new("curl");
+    // Pin the fixed resolver bootstrap, retain TLS hostname verification, no redirects.
+    cmd.args([
+        "--disable",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--max-time",
+        "5",
+        "--connect-timeout",
+        "3",
+        "--proto",
+        "=https",
+        "--proxytunnel",
+        "--connect-to",
+        "cloudflare-dns.com:443:1.1.1.1:443",
+        "--header",
+        "accept: application/dns-json",
+        url.as_str(),
+    ]);
+    if let Some(proxy) = system_proxy() {
+        cmd.env("HTTPS_PROXY", &proxy).env("HTTP_PROXY", proxy);
+    }
+    cmd.kill_on_drop(true)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().map_err(|_| unavailable("DoH进程无法启动"))?;
+    let mut bytes = Vec::new();
+    let stdout = child.stdout.take().expect("piped DoH stdout");
+    let status = tokio::time::timeout(Duration::from_secs(6), async {
+        stdout.take(65_537).read_to_end(&mut bytes).await?;
+        child.wait().await
+    })
+    .await
+    .map_err(|_| unavailable("DoH查询超时"))?
+    .map_err(|_| unavailable("DoH查询无法完成"))?;
+    if !status.success() || bytes.len() > 65_536 {
+        return Err(unavailable("DoH查询失败或响应超过边界"));
+    }
+    doh_answers(&bytes, host, kind)
 }
 fn system_proxy() -> Option<String> {
     if ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
@@ -348,6 +443,32 @@ pub async fn fetch(raw: &str, c: &ToolContext) -> Result<Page, FetchError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn doh_response_identity_errors_and_mixed_addresses_cannot_be_hidden() {
+        use serde_json::json;
+        let base = json!({"Status":0,"TC":false,"Question":[{"name":"public.example.","type":1}],"Answer":[{"type":1,"data":"8.8.8.8"},{"type":1,"data":"127.0.0.1"}]});
+        let ips = doh_answers(&serde_json::to_vec(&base).unwrap(), "public.example", 1).unwrap();
+        assert_eq!(ips.len(), 2);
+        assert!(
+            ips.iter().any(|ip| !public_ip(*ip)),
+            "must retain denied answers for the shared boundary"
+        );
+        for (pointer, value) in [
+            ("/Status", json!(3)),
+            ("/TC", json!(true)),
+            ("/Question/0/name", json!("other.example")),
+            ("/Question/0/type", json!(28)),
+            ("/Answer/0/data", json!("::1")),
+        ] {
+            let mut bad = base.clone();
+            *bad.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                doh_answers(&serde_json::to_vec(&bad).unwrap(), "public.example", 1).is_err(),
+                "{pointer}"
+            );
+        }
+        assert!(doh_answers(br#"{"Status":0,"Status":3}"#, "public.example", 1).is_err());
+    }
     #[test]
     fn private_special_and_documentation_addresses_are_denied() {
         for ip in [

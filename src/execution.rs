@@ -217,16 +217,22 @@ impl ExecutionSetup {
         })
     }
     pub async fn open(self, root: &Path, data: &Path) -> Result<(Arc<Runtime>, String)> {
-        let definition = crate::domain::definition(root)?;
-        let digest = definition.digest.clone();
-        let bindings = crate::domain::bindings(&definition, self.executor)
-            .configuration_version(format!("inquiry-milkie@1:{}", self.binding));
-        let runtime = Runtime::open_with_trace_policy(
+        let bindings = crate::orchestration::bindings(
+            self.executor,
+            format!("inquiry-article@0.4.0:{}", self.binding),
+        );
+        let (registry, options) = crate::orchestration::registry(root, &bindings)?;
+        let digest = registry.profile_digest(crate::orchestration::PROFILE)?;
+        let runtime = Runtime::open_orchestrated(
             crate::budget::runtime_options(data.join("taskloop")),
-            vec![definition],
+            vec![],
             bindings,
-            self.trace,
-            self.policy,
+            registry,
+            options,
+            Some(TraceSetup {
+                options: self.trace,
+                policy: self.policy,
+            }),
         )
         .await?;
         Ok((Arc::new(runtime), digest))

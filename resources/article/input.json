@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 12000
+    },
+    "scope": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "seed_urls": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096,
+        "pattern": "^https?://"
+      },
+      "maxItems": 20
+    }
+  },
+  "required": [
+    "question",
+    "scope",
+    "seed_urls"
+  ],
+  "additionalProperties": false
+}

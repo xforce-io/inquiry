@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    inquiry::net::dns_mode().map_err(|e| e.reason)?;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let data = std::env::var_os("INQUIRY_DATA_DIR")
         .map(PathBuf::from)

@@ -6,8 +6,9 @@ rust-version = "1.91.1"
 publish = false
 
 [dependencies]
-taskloop = { git = "https://github.com/xforce-io/taskloop.git", rev = "3f86802f3d564ca660f507917e5a70a049d86718" }
+taskloop = { git = "https://github.com/xforce-io/taskloop.git", rev = "daf0fbaae905be555b543063a4e0d477ea522be8" }
 async-trait = "0.1"
+base64 = "0.22"
 axum = "0.8"
 chrono = "0.4"
 scraper = "0.24"

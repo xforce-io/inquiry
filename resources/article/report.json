@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "answer_status": {
+      "enum": [
+        "answered",
+        "insufficient_evidence"
+      ]
+    },
+    "conclusion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200000
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "paragraph": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "source_id": {
+            "type": "string",
+            "pattern": "^r[12]s[0-9]+$"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "sha256",
+          "paragraph",
+          "quote",
+          "source_id"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "answer_status",
+    "conclusion",
+    "citations",
+    "limitations"
+  ],
+  "additionalProperties": false
+}

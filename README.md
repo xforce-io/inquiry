@@ -6,7 +6,7 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（当前依赖候选 `275a9170f42ea94ffcdfdeb4bec7cc702cae27f6`）。研究仍固定 `gpt-6-astra/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码仍固定 TaskLoop `3f86802`，尚未迁移到已合入的 Goal/DAG；精确依赖以 Cargo.toml/Cargo.lock 为准。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `98b5ec1c02abbc9612356387d982d6e96b272a21`）。研究仍固定 `gpt-6-astra/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `daf0fbaae905be555b543063a4e0d477ea522be8`，通过公开 Goal/DAG 接口运行方法 0.4.0；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
 
 宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，所有字段必填。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`是提前准备、互不包含且不与框架存储重叠的专用目录。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
 
@@ -20,13 +20,15 @@ INQUIRY_EXECUTION_CONFIG=/absolute/path/execution.json cargo run --locked
 
 打开 http://127.0.0.1:3410 。只监听本地，不是多用户托管服务。`INQUIRY_PORT` 可指定非零端口，`INQUIRY_DATA_DIR` 可指定私有工作目录，默认为 `data/`。取消请求与取消确认分开；退出使用正常中断并等待执行器停止。刷新原研究地址可恢复视图，不自动重新执行未知工作。
 
-创建页填写问题，网址/范围可选；详情页显示实际阶段、已接纳资料、报告和限制。引用打开保存版本并定位段落，不以当前远端网页替代历史内容。资料不足可补网址；失败或停止保留已有内容。
+创建页填写问题，网址/范围可选；详情页显示实际阶段、已接纳资料、报告和限制。引用打开保存版本并定位段落，不以当前远端网页替代历史内容。必要澄清可补充文本和网址；失败、未达标或停止保留已有内容。初稿与最终稿分别展示确切版本的质量评价，旧方法记录保持只读。
 
-公开 HTTP(S) 获取每页正文上限1MiB、最多5次重定向，逐跳检查DNS并固定目标IP，拒绝内网、凭据URL和非80/443端口；一期不支持PDF/OCR或登录网页。规范化节选会标记截断。网络实现依据 [curl connect-to](https://curl.se/docs/manpage.html#--connect-to) 与 [IANA 特殊地址注册表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。网页是非可信文本，不能向Agent授予额外工具或权限。
+公开 HTTP(S) 获取每页正文上限1MiB、最多5次重定向，逐跳检查DNS并固定目标IP，拒绝内网、凭据URL和非80/443端口；一期不支持PDF/OCR或登录网页。规范化节选会标记截断。网络实现依据 [curl connect-to](https://curl.se/docs/manpage.html#--connect-to) 与 [IANA 特殊地址注册表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。网页是非可信文本，不能向Agent授予额外工具或权限。系统DNS不可用时，宿主可显式设置 `INQUIRY_DNS_MODE=cloudflare-doh` 使用固定Cloudflare HTTPS解析；默认system。此模式仍校验全部A/AAAA地址并固定目标IP，失败不换解析器，`/api/health`显示所选模式。详见[设计中的网络边界](docs/design/7-deep-article-quality-loop.md#8-apicli)。
 
-方法0.3.7通过TaskLoop显式阶段策略限制工具调用：分析80次、其余40次，均保留最后2次给产物提交/修正；工具返回剩余额度，失败的已受理调用也计入。读取额度耗尽时仍须用已有证据提交并披露限制，不保证报告必然成功。总处理时长仍为30分钟，网页、产物字节及权限边界不变。
+方法0.4.0固定为范围、资料获取、分析、有界补查、综合、初稿、独立评价、一次修订及最终评价，无回边。每轮最多8条查询和20个实际来源候选，保存正文和原文档案分别有容量上限。作者通过授权工具分段读取资料，评价者读取独立 CheckInput 和保存证据；引用核对与 Q1–Q6 语义评价分别运行。只有针对确切最终稿的两项必需评价全部通过才达标。
 
-原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。报告引用检查仅证明版本/定位/分析关系一致，内容质量仍需独立评价。旧`research-audit.ndjson`原样保留；新执行诊断由TaskLoop统一元数据Trace与预算事实承接，不再另写原始工具正文日志。原生功能会话仍位于宿主提供的专用会话目录，不受Trace TTL代删；未知用量不补零。
+总墙钟/活动时长上限30分钟、16 Run、300次 TaskLoop 工具调用，单项入口另有时间/调用限制，保留最后2次提交。原生采集在一个Run内逐次调用搜索和单页获取工具；搜索恢复、DNS和重定向可能产生多个网络请求，另外保留获取事实，不把工具调用数混为网络请求数。边界耗尽不保证文章成功。旧方法0.3.7资源保持原样，用于历史记录解释。
+
+原始网页、运行目录和审计日志均为本地私有数据，不进入公开仓库。引用检查仅证明版本/定位/分析关系一致；产品中的独立语义评价也不代替最终效果实验。旧`research-audit.ndjson`原样保留；新执行诊断由TaskLoop统一元数据Trace与预算事实承接，不再另写原始工具正文日志。原生功能会话仍位于宿主提供的专用会话目录，不受Trace TTL代删；未知用量不补零。
 
 ## 验证与状态
 
@@ -39,7 +41,7 @@ npm run build --prefix web
 
 确定性测试不是实际模型研究。研究集成分支 `feat/2-research-web-mvp` 已有真实六阶段报告、引用回溯、停止/隔离与 Web 驾驶证据，迁移 PR #4 和搜索恢复 PR #6 均已合入该分支；应用尚未进入 main。两轮质量对照均为 FAIL，第三轮为 BLOCKED，不宣称已优于直接生成。各证据仅支持其绑定候选及记录范围，不能当作当前 #7 新质量闭环已验收。
 
-`feat/7-deep-article-quality-loop` 承接已集成实现及深度文章产品草稿，推进独立评价、有界修订和 Goal/DAG 接入。设计与协议仍在完善；正式生成前必须冻结输入、模型、规则、预算与匿名映射，旧实验不改写。
+`feat/7-deep-article-quality-loop` 承接已集成实现；产品基线已于2026-11-13由用户确认，[设计 v0.2](docs/design/7-deep-article-quality-loop.md)及新闭环已实现待验收。当前确定性检查不能证明深度文章质量；正式生成前必须冻结输入、模型、规则、预算与匿名映射，旧实验不改写。
 
 - [实现与验收 Issue #2](https://github.com/xforce-io/inquiry/issues/2)
 - [唯一实现 L2 与实验协议](docs/design/2-research-web-mvp.md)

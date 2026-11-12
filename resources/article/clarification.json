@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "clarification": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "urls": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4096,
+        "pattern": "^https?://"
+      },
+      "maxItems": 20
+    }
+  },
+  "required": [
+    "clarification",
+    "urls"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "properties": {
+        "clarification": {
+          "minLength": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "urls": {
+          "minItems": 1
+        }
+      }
+    }
+  ]
+}

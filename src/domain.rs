@@ -224,56 +224,61 @@ impl DomainTool for Fetch {
         {
             return Err(fault("网址不属于当前已接受候选"));
         }
-        let mut fact = json!({"source_id":id,"requested_url":url,"final_url":null,"captured_at":chrono::Utc::now().to_rfc3339(),"fetch_status":"unavailable","http_status":null,"reason":"未取得可用正文","title":"","body_sha256":null,"normalized_sha256":null,"transform_version":null,"usable":false,"raw_slot":null,"snapshot_slot":null,"truncated":false});
-        let page = match crate::net::fetch(&url, &c).await {
-            Ok(p) => p,
-            Err(e) => {
-                fact["fetch_status"] = json!(if e.denied { "denied" } else { "unavailable" });
-                fact["reason"] = json!(e.reason);
-                return Ok(ToolOutput::json(fact));
-            }
-        };
-        fact["final_url"] = json!(page.final_url);
-        fact["http_status"] = json!(page.status);
-        fact["body_sha256"] = json!(hash(&page.body));
-        let raw_slot = format!("capture.raw.{id}");
-        fact["raw_slot"] = json!(raw_slot);
-        let mut files = vec![Candidate::bytes(&raw_slot, page.body.clone())];
-        if !(200..300).contains(&page.status) {
-            fact["reason"] = json!(format!("来源HTTP状态{}，不能作为已获取证据", page.status));
+        acquire_source(&c, id, &url).await
+    }
+}
+
+/// Shared acquisition boundary for legacy Flow and native Goal collection.
+pub(crate) async fn acquire_source(c: &ToolContext, id: &str, url: &str) -> Result<ToolOutput> {
+    let mut fact = json!({"source_id":id,"requested_url":url,"final_url":null,"captured_at":chrono::Utc::now().to_rfc3339(),"fetch_status":"unavailable","http_status":null,"reason":"未取得可用正文","title":"","body_sha256":null,"normalized_sha256":null,"transform_version":null,"usable":false,"raw_slot":null,"snapshot_slot":null,"truncated":false});
+    let page = match crate::net::fetch(url, c).await {
+        Ok(p) => p,
+        Err(e) => {
+            fact["fetch_status"] = json!(if e.denied { "denied" } else { "unavailable" });
+            fact["reason"] = json!(e.reason);
+            return Ok(ToolOutput::json(fact));
+        }
+    };
+    fact["final_url"] = json!(page.final_url);
+    fact["http_status"] = json!(page.status);
+    fact["body_sha256"] = json!(hash(&page.body));
+    let raw_slot = format!("capture.raw.{id}");
+    fact["raw_slot"] = json!(raw_slot);
+    let mut files = vec![Candidate::bytes(&raw_slot, page.body.clone())];
+    if !(200..300).contains(&page.status) {
+        fact["reason"] = json!(format!("来源HTTP状态{}，不能作为已获取证据", page.status));
+        return Ok(ToolOutput {
+            payload: fact,
+            files,
+        });
+    }
+    let normalized = match normalize(&page.body, &page.content_type) {
+        Ok(n) => n,
+        Err(e) => {
+            fact["reason"] = json!(e.message);
             return Ok(ToolOutput {
                 payload: fact,
                 files,
             });
         }
-        let normalized = match normalize(&page.body, &page.content_type) {
-            Ok(n) => n,
-            Err(e) => {
-                fact["reason"] = json!(e.message);
-                return Ok(ToolOutput {
-                    payload: fact,
-                    files,
-                });
-            }
-        };
-        let snapshot_slot = format!("capture.snapshot.{id}");
-        fact["snapshot_slot"] = json!(snapshot_slot);
-        fact["title"] = json!(normalized.title);
-        fact["normalized_sha256"] = json!(hash(&serde_json::to_vec(&normalized.paragraphs)?));
-        fact["transform_version"] = json!("html-text-v1");
-        fact["usable"] = json!(true);
-        fact["fetch_status"] = json!("captured");
-        fact["reason"] = json!("公开网页已获取并保存");
-        fact["truncated"] = json!(normalized.truncated);
-        files.push(Candidate::json(
-            snapshot_slot,
-            &json!({"fact":fact,"paragraphs":normalized.paragraphs}),
-        )?);
-        Ok(ToolOutput {
-            payload: fact,
-            files,
-        })
-    }
+    };
+    let snapshot_slot = format!("capture.snapshot.{id}");
+    fact["snapshot_slot"] = json!(snapshot_slot);
+    fact["title"] = json!(normalized.title);
+    fact["normalized_sha256"] = json!(hash(&serde_json::to_vec(&normalized.paragraphs)?));
+    fact["transform_version"] = json!("html-text-v1");
+    fact["usable"] = json!(true);
+    fact["fetch_status"] = json!("captured");
+    fact["reason"] = json!("公开网页已获取并保存");
+    fact["truncated"] = json!(normalized.truncated);
+    files.push(Candidate::json(
+        snapshot_slot,
+        &json!({"fact":fact,"paragraphs":normalized.paragraphs}),
+    )?);
+    Ok(ToolOutput {
+        payload: fact,
+        files,
+    })
 }
 pub struct ReadSource;
 #[async_trait]
