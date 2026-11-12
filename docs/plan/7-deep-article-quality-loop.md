@@ -9,7 +9,7 @@
 - [x] 核对两仓 origin、远端分支、Issue、PR 和源码版本。
 - [x] 将研究集成基线 d99bb16 合入 #7 工作树，解决名词表冲突并保留新增术语。
 - [ ] 固定产品基线与可核验的质量/收益验证协议。
-- [ ] 调查并处理 TaskLoop 两项已知 P2，记录各自的复现、修复和验证。
+- [x] 调查并处理 TaskLoop 两项已知 P2，记录各自的复现、修复和验证。
 - [ ] 完成唯一设计文件的技术契约与验收映射。
 - [ ] 实现 Goal/DAG 接入、独立评价、有界修订、最终评价及 Web 展示。
 - [ ] 冻结候选，完成确定性检查和真实 Web/研究验证。
@@ -41,3 +41,5 @@ TaskLoop `tests/inquiry_consumer/` 已有公开 API 接入与旧领域校验适�
 ## 旧接口兼容性调查
 
 2026-11-12 对 `d31671cfbf57c519994d413b12a344cdfb8dbce6` 的归档副本临时使用 TaskLoop `384bad9566449571b163c9744beb9f52475d3b82` 路径依赖，执行原有 `cargo test --offline`：34 passed、0 failed、3 ignored。副本、版本组合、命令输出和退出码位于本工作树 `target/compat-taskloop-20/`；正式 Cargo.toml/Cargo.lock 未改。此调查证明该组合的旧 Flow 代码兼容，不证明 Goal/DAG 迁移、真实模型运行或新质量闭环。未来正式接入候选仍须重新验证相应路径。
+
+TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issues/20) / [PR #21](https://github.com/xforce-io/taskloop/pull/21) 收尾：232 passed、0 failed、5 ignored，严格 Clippy、独立旧 Flow 消费者、公开 Runtime 验证、原生独立审查 PASS（human: optional）、分支及 PR 双平台 CI、keel check 均通过。合入 `main@daf0fbaae905be555b543063a4e0d477ea522be8` 后，已核对文件树与经审 `384bad9` 相同；本地 main 干净并已同步。兼容性试验仍保留原组合 SHA，不改标成新 Inquiry 的验收证据。没有发布包或部署服务。
