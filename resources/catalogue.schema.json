@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.-]*$"
+            }
+          }
+        },
+        "required": [
+          "topic",
+          "source_ids"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "只列妨碍有依据的条件性回答、且可经公开资料补齐的证据缺口；已知尚无实测数据等写limitations。"
+    },
+    "decision": {
+      "enum": [
+        "ready",
+        "need_more",
+        "need_input"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "groups",
+    "gaps",
+    "decision",
+    "limitations"
+  ],
+  "additionalProperties": false
+}

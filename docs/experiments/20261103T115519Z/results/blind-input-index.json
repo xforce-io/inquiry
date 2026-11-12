@@ -1,0 +1,20 @@
+{
+  "created_at_utc": "2026-11-03T12:26:18.848973+00:00",
+  "mapping_commitment": "57ea4889d1af8c50fed36f97865ee460fca602584a76d7a1fc4973d2f57d6996",
+  "reports": {
+    "R1": "0f2bb402a0c53e180e201c781969c5893cbe4bbe2c06974dad36ad42edd8ec84",
+    "R2": "dfa408fd71ead6d84bdfd34c6618dad26be487322c54945e1ca0012195888e50",
+    "R3": "37a34b6b443f192c48ffd6074eb9a5ee9005fe10574e445a4d8c9b57ebe33713",
+    "R4": "40578b026c08b71f1170b735b71ef7c35f7a1ae559b8373b76a089804d7df9b0"
+  },
+  "inputs": {
+    "a": "66fb3229dcff089016b5de80a58e200e1d54697fec96063c96b36cae49deff6f",
+    "b": "ae5f23160bc21d419d8c6b1712f5bf48d25101587191eaafa52d5caf0c6d59d0"
+  },
+  "sources": 55,
+  "input_characters": {
+    "a": 210711,
+    "b": 210711
+  },
+  "no_scores_yet": true
+}
