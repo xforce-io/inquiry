@@ -55,3 +55,9 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 首次DoH探针越过地址拒绝后，整轮采集在45秒公共工具回调边界超时（target/native-collection-doh-probe.log）。根因为应用将最多8查询/20获取装入一次回调，虽然Run预算480秒，回调仍有独立45秒上限。已改为同一原生Run内逐次搜索/单页获取和最终组包，每个回调保留现有边界，不扩展TaskLoop；重新验证另记target/native-collection-doh-split-probe.log。
 
 拆分回调后的零模型网络探针通过：5条真实候选、4条可用保存来源，逐条核对搜索来源标记、原文base64还原SHA-256、规范化段落SHA-256。该结果不证明文章质量；前两次网络/回调失败均原样保留。原生Codex0.166.0+固定Milkie的本机401/挂起提供者验证也通过：high、Trace、实际停止、正常关闭；不代表真实账号或模型研究通过。
+
+## 首批真实研究与后续检查
+
+已冻结并推送35a8dce，干净树重跑46 passed/0 failed/4 ignored、fmt、严格Clippy、前端构建，以及显式原生401/停止和DoH真实采集探针（5候选/4可用）。事前登记完成后，实际浏览器创建复杂研究；三次原生规划均auth_failed，公共终点planning_exhausted/failed，无文章、工具调用或质量评价。原始证据与[公开结果](../experiments/7-first-attempt.md)保留；后续效果比较未启动。已请求用户完成专用账号交互，不凭本地Logged in声称远端可用。
+
+等待期间只补应用诊断入口及项目内受控Goal浏览器夹具；夹具明示synthetic/zero models，不能用于S3.A2真实语义负例或S5文章达标。首次夹具编译发现shutdown异步块需move，已修正并定向检查；不修改既有真实失败证据的SHA。下一候选须重新冻结界面检查，正式模型复验另核对历史和预算。

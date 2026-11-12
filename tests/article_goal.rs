@@ -22,7 +22,7 @@ fn package(round: u8) -> Corpus {
             vec![Source {
                 source_id: "r1s1".into(),
                 origin: "user-input".into(),
-                fact: json!({"usable":true,"final_url":"https://example.com/official","requested_url":"https://example.com/official","normalized_sha256":inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())}),
+                fact: json!({"usable":true,"final_url":"https://example.com/official","requested_url":"https://example.com/official","title":"Controlled source (synthetic)","reason":"Controlled saved paragraph, not real research","captured_at":"2026-11-12T17:00:00Z","fetch_status":"captured","http_status":200,"truncated":false,"normalized_sha256":inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())}),
                 paragraphs,
             }]
         } else {
@@ -788,4 +788,115 @@ async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_b
         json!({"probe":"production Goal native collector","real_sources":value.sources.len(),"usable":value.sources.iter().filter(|s|s.fact["usable"]==true).count(),"model_calls":0,"article_quality_proven":false})
     );
     fixture.runtime.shutdown().await.unwrap();
+}
+
+struct BrowserAgent {
+    stop_confirmed: Arc<std::sync::atomic::AtomicBool>,
+}
+#[async_trait]
+impl Executor for BrowserAgent {
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    async fn stop_or_confirm(&self, _: &str) -> StopState {
+        if self
+            .stop_confirmed
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            StopState::Confirmed
+        } else {
+            StopState::Unknown
+        }
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        let role = tools.goal_context().unwrap().role;
+        let question = if matches!(role, GoalRunRole::FinalCheck { .. })
+            || inv.stage_input.get("check_id").is_some()
+        {
+            inv.stage_input["goal"].as_str().unwrap().to_owned()
+        } else {
+            inv.inputs["question"].as_str().unwrap().to_owned()
+        };
+        if question.contains("停止未确认") && matches!(role, GoalRunRole::Planner { .. }) {
+            return ExecutionOutcome::StopUnknown {
+                message: "Controlled unknown stop; no native process exists".into(),
+            };
+        }
+        if question.contains("澄清") {
+            return Clarifying.execute(inv, tools, cancel).await;
+        }
+        let verdict = if question.contains("未达标") {
+            "fail"
+        } else if question.contains("检查错误") {
+            "error"
+        } else {
+            "pass"
+        };
+        Agent {
+            final_verdict: verdict,
+        }
+        .execute(inv, tools, cancel)
+        .await
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "Manual controlled Goal browser host; explicit private store/port, zero models; never article-quality acceptance"]
+async fn browser_goal_host() {
+    let store = std::path::PathBuf::from(
+        std::env::var_os("INQUIRY_GOAL_TEST_STORE").expect("explicit private store"),
+    );
+    assert!(store.is_absolute());
+    let port: u16 = std::env::var("INQUIRY_GOAL_TEST_PORT")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let confirmed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let agent = Arc::new(BrowserAgent {
+        stop_confirmed: confirmed.clone(),
+    });
+    let bindings = orchestration::bindings(agent.clone(), "controlled-browser-zero-models".into())
+        .executor("article.collect", agent);
+    let (registry, options) =
+        orchestration::registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
+    let runtime = Arc::new(
+        Runtime::open_orchestrated(
+            inquiry::budget::runtime_options(store),
+            vec![],
+            bindings,
+            registry,
+            options,
+            None,
+        )
+        .await
+        .unwrap(),
+    );
+    let app = inquiry::web::router(inquiry::web::Host {
+        runtime: runtime.clone(),
+        definition_digest: String::new(),
+        port,
+        session: uuid::Uuid::new_v4().to_string(),
+        web_dir: Path::new(env!("CARGO_MANIFEST_DIR")).join("web/dist"),
+    });
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .unwrap();
+    println!(
+        "Controlled Goal browser fixture http://127.0.0.1:{port}; zero models. Use questions containing 达标/未达标/检查错误/澄清/停止未确认. Synthetic articles are not quality evidence."
+    );
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            confirmed.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+        .await
+        .unwrap();
+    runtime.shutdown().await.unwrap();
 }

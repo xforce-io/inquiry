@@ -13,3 +13,5 @@
 ## Issue #7 / S4.A1–A4
 
 实际创建复杂研究，阅读初稿/最终稿及其评价；点引用查看确切资料包内source_id和段落，Escape关闭后保持原阅读位置及焦点，刷新后版本与评价一致。五类结果分别可见：达标、未达标、检查错误、等待澄清、停止未确认；受控状态另标，不冒充真实文章。两实例不串资料，跨研究引用404，同键响应丢失不重复执行，读取失败保留上次内容并可重试。Trace/预算走同研究公开接口，未知不补0；旧Flow仅可读、不显示写操作。共用reliability.md及execution.md证据。
+
+受控五类状态可显式启动项目内夹具：`INQUIRY_GOAL_TEST_STORE=<绝对私有目录> INQUIRY_GOAL_TEST_PORT=<本地端口> cargo test --locked --test article_goal browser_goal_host -- --ignored --nocapture`。创建问题分别包含“达标”“未达标”“检查错误”“澄清”“停止未确认”；全部为synthetic/zero models，只验证实际Web消费公开状态和保存引用，不能证明真实文章/真实语义判断。按正常中断退出，夹具只确认自己持有的受控Run；不操作实际模型或其它研究。

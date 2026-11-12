@@ -124,8 +124,29 @@ function goalDetail(data:View,id:string){
  if(!count)sources.append(element('p','muted','尚无已接纳的资料处置。'));main.append(sources);
  const process=element('details','process-card');process.append(element('summary','','研究范围与分析依据'));
  const plan=data.outputs.find(o=>o.artifact.slot==='plan');if(plan){process.append(element('h3','','必答问题'));for(const q of (plan.value as {subquestions:string[]}).subquestions)process.append(element('p','',q));}
- const analyses=data.outputs.filter(o=>o.artifact.slot==='analysis');for(const o of analyses){const value=o.value as {judgments:{text:string;limitations:string[]}[];gaps:string[]};process.append(element('h3','',o.stage==='synthesize'?'综合判断':'首轮判断'));for(const j of value.judgments)process.append(element('p','',j.text));for(const gap of value.gaps)notice(process,gap,'info');}main.append(process);
+ const analyses=data.outputs.filter(o=>o.artifact.slot==='analysis');for(const o of analyses){const value=o.value as {judgments:{text:string;limitations:string[]}[];gaps:string[]};process.append(element('h3','',o.stage==='synthesize'?'综合判断':'首轮判断'));for(const j of value.judgments)process.append(element('p','',j.text));for(const gap of value.gaps)notice(process,gap,'info');}process.append(diagnosticPanel(id));main.append(process);
  if(terminal.has(snapshot.status)&&snapshot.status!=='stopped')main.append(button('基于此继续研究','quiet',()=>{draft={question:snapshot.inputs.question,scope:snapshot.inputs.scope,urls:snapshot.inputs.seed_urls.join('\n'),key:crypto.randomUUID()};parentGoalId=id;navigate('/');}));
+}
+function diagnosticPanel(id:string){
+ const section=element('section','execution-diagnostics');section.append(element('h3','','执行诊断'));
+ const output=element('div');const read=button('读取本研究的运行与预算','quiet',()=>void refresh());
+ const download=element('a','quiet','导出观测记录（本页最多100条）');download.href=`/api/research/${encodeURIComponent(id)}/trace/export?limit=100`;download.download='inquiry-trace.json';section.append(read,download,output);
+ async function refresh(){read.disabled=true;output.replaceChildren(element('p','muted','正在读取公开运行事实…'));
+  try{
+   const [budget,trace]=await Promise.all([
+    api<{budget:{runs_used:number;used:{active_ms:number;tool_calls:number};incomplete_active_subjects:string[]};available:{active_ms:number;tool_calls:number};effective_limits:{max_runs:number}}>(`/api/research/${encodeURIComponent(id)}/budgets`),
+    api<{enabled:boolean;complete:boolean;issues:string[];events:{event:{kind:string;run_id?:string;state_id?:string;milkie_run_id?:string;data?:{code?:string}}}[]}>(`/api/research/${encodeURIComponent(id)}/trace?limit=100`)
+   ]);
+   if(!section.isConnected)return;output.replaceChildren();
+   const unknown=budget.budget.incomplete_active_subjects.length>0;
+   output.append(element('p','',`运行 ${budget.budget.runs_used}/${budget.effective_limits.max_runs} 次 · 工具调用 ${budget.budget.used.tool_calls} 次 · 剩余工具额度 ${budget.available.tool_calls} 次`),element('p','muted',`已记录活动时间 ${(budget.budget.used.active_ms/1000).toFixed(1)} 秒${unknown?'（计量有缺口）':''} · 剩余活动额度 ${(budget.available.active_ms/1000).toFixed(1)} 秒。未知用量不补零。`));
+   if(!trace.enabled||!trace.complete)notice(output,'观测记录未完整采集'+(trace.issues.length?'：'+trace.issues.join('、'):'')+'。业务结果仍以文章及评价为准。','info');
+   const records=element('details');records.append(element('summary','',`查看本页 ${trace.events.length} 条阶段、Agent与工具记录`));
+   for(const item of trace.events){const event=item.event;records.append(element('p','diagnostic-event',`${event.state_id||'研究'} · ${event.kind}${event.data?.code?' · '+event.data.code:''}${event.milkie_run_id?' · Agent '+event.milkie_run_id:''}${event.run_id?' · '+event.run_id:''}`));}output.append(records);
+  }catch(err){if(section.isConnected){output.replaceChildren();notice(output,errorText(err)+' 可重试读取；文章和评价保持原状态。');}}
+  finally{read.disabled=false;}
+ }
+ return section;
 }
 function goalWaiting(main:HTMLElement,id:string,revision:number,goal:Goal){
  const wait=goal.waiting.find(w=>!w.consumed);if(!wait)return;

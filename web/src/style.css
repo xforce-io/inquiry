@@ -3,3 +3,5 @@
 
 /* Version-bound article quality */
 .version-tabs{display:flex;gap:0.75rem;margin-bottom:1.5rem}.quality-results{margin-top:2rem;border-top:1px solid currentColor;padding-top:1.5rem}.quality-item{padding:0.75rem 0}.quality-message{white-space:pre-wrap;overflow-wrap:anywhere}.quality-item.fail h3,.quality-item.error h3{color:#9e412e}
+
+.execution-diagnostics{margin-top:2rem;padding-top:1rem;border-top:1px solid var(--line)}.execution-diagnostics>a{display:inline-block;margin:.5rem 0 .5rem 1rem}.diagnostic-event{font-family:monospace;font-size:.8rem;overflow-wrap:anywhere}
