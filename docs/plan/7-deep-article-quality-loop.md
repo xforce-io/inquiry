@@ -28,6 +28,10 @@ TaskLoop `src/orchestration/registry.rs::validate_profile` 当前仅验证 check
 
 TaskLoop `tests/inquiry_consumer/` 已有公开 API 接入与旧领域校验适配示例，可复用装配经验；其固定两份网址、短研究及框架验收不满足本票自主复杂文章验收，不能整体搬用为正例。
 
+进一步核对 `src/orchestration/driver.rs::prepare_execution`：Goal 工作节点只获得锁定请求明确列出的 input_artifact_ids，评价者只获得 CheckInput 中投影的 goal_inputs 和授权 targets。`nodes.rs::ready_node` 从显式输入端口构造这些引用，不自动授权所有上游附件；`driver.rs::persist_candidate` 将工具产生的候选先保存为 accepted=false。因而旧 Flow 的动态 capture 附件不能假定会随一个 materials 端口自动传递给下游，资料集合的公开引用与内容版本必须在技术契约中解决，不能偷读目录或扩大工具权限绕过。
+
+`orchestration/check.rs::issue_check/check_evaluation` 已负责独立 CheckInput、精确目标身份、规则覆盖和证据权限；应用应提供领域语义规则及可读取来源，不再另造评价回执身份。初稿评价应作为可传给修订的 data 评价，最终必需评价才决定 achieved/not_met；具体规划仍待产品基线后确定，不能拿框架示例中的小题结果替代本票文章。
+
 ## 当前门槛
 
 设计文件仍为产品草稿 v0.1。两页路径和六项全通过的选择已向用户集中确认；未获得确认前只做调查、基线整理和独立的可靠性修复，不进入新产品实现。正式模型实验须先提交固定协议，包含问题、截止、候选、模型、预算、评价隔离和全部尝试的记录方式。
