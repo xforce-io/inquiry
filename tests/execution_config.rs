@@ -16,7 +16,7 @@ impl ConfigFixture {
         for name in ["node", "milkie.js"] {
             std::fs::write(root.path().join(name), "fixture-not-executed").unwrap();
         }
-        std::fs::write(root.path().join("connection.json"),br#"{"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6-astra"}}"#).unwrap();
+        std::fs::write(root.path().join("connection.json"),br#"{"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6.1-sol"}}"#).unwrap();
         std::fs::write(
             root.path().join("native-config/config.toml"),
             "model_reasoning_effort = \"high\"\n",
@@ -92,9 +92,9 @@ fn low_or_profile_overridden_effort_is_rejected_without_disclosing_config_conten
 fn connection_does_not_silently_change_model_runtime_or_inherit_environment() {
     let f = ConfigFixture::new();
     for value in [
-        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"different"}}),
-        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"pi","model":"gpt-6-astra"}}),
-        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6-astra"},"env":{"OPENAI_API_KEY":"CONFIG-SECRET"}}),
+        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6-astra"}}),
+        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"pi","model":"gpt-6.1-sol"}}),
+        json!({"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6.1-sol"},"env":{"OPENAI_API_KEY":"CONFIG-SECRET"}}),
     ] {
         std::fs::write(
             f.root.path().join("connection.json"),

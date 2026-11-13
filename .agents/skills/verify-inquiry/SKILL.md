@@ -7,7 +7,7 @@ description: 在本地真实 Inquiry 上验证研究、可靠性、质量实验�
 
 ## Launch
 
-仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录仅由宿主按本轮明确授权准备于测试专用目录，应用不复制或自动发现全局凭据。实际研究固定 gpt-6-astra/high，模型不回退。
+仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录仅由宿主按本轮明确授权准备于测试专用目录，应用不复制或自动发现全局凭据。当前实际研究固定 gpt-6.1-sol/high（2026-11-13用户指定）；历史Astra实验保留原版本，模型不回退。
 
 Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；配置通过不代表账号/模型就绪。方法0.4.0的Milkie固定构建98b5ec1c02abbc9612356387d982d6e96b272a21（execution-sidecar协议）；Codex与同版codex-code-mode-host均在任务专用PATH中，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked；宿主仅在用户明确授权后准备专用登录，不用本机401夹具当报告验收。
 

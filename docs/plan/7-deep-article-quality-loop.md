@@ -61,3 +61,9 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 已冻结并推送35a8dce，干净树重跑46 passed/0 failed/4 ignored、fmt、严格Clippy、前端构建，以及显式原生401/停止和DoH真实采集探针（5候选/4可用）。事前登记完成后，实际浏览器创建复杂研究；三次原生规划均auth_failed，公共终点planning_exhausted/failed，无文章、工具调用或质量评价。原始证据与[公开结果](../experiments/7-first-attempt.md)保留；后续效果比较未启动。已请求用户完成专用账号交互，不凭本地Logged in声称远端可用。
 
 等待期间只补应用诊断入口及项目内受控Goal浏览器夹具；夹具明示synthetic/zero models，不能用于S3.A2真实语义负例或S5文章达标。首次夹具编译发现shutdown异步块需move，已修正并定向检查；不修改既有真实失败证据的SHA。下一候选须重新冻结界面检查，正式模型复验另核对历史和预算。
+
+## 用户指定Sol及认证问题定位（2026-11-13）
+
+用户要求改用GPT-6.1-Sol，并指出当前会话正在正常使用。按同一固定Codex0.166.0、Sol/high及无工具OK提示对照：旧专用CODEX_HOME仍401；当前用户~/.codex成功退出0、返回OK、无工具调用。证据work/verify/7-auth-sol-1/result.json及7-auth-sol-current-home/result.json；累计6次模型入口，不把失败清零。当前登录有效，先前将旧隔离环境失败泛化为当前账号失效不准确，不应继续要求用户重登有效账号。未复制认证文件或修改全局配置。
+
+当前模型约束、示例连接、配置/原生测试及现行方法说明切换为gpt-6.1-sol/high；设计v0.3、协议v0.4，保留原Astra历史与首批登记。此修改不宣称Milkie/Goal/Web或文章质量通过。当前用户原生配置默认medium，直接烟测通过显式high覆盖；应用接入有效登录时仍须保留显式high、配置与会话隔离边界，不暗改全局配置来绕过校验。

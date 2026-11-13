@@ -132,11 +132,11 @@ impl ExecutionSetup {
         if conn.contract_version != 1
             || conn.fields.transport != "agent-cli"
             || conn.fields.runtime != "codex"
-            || conn.fields.model != "gpt-6-astra"
+            || conn.fields.model != "gpt-6.1-sol"
         {
             return Err(invalid(
                 "/execution/connection",
-                "研究固定使用gpt-6-astra及原生Codex，不回退模型或执行器",
+                "研究固定使用gpt-6.1-sol及原生Codex，不回退模型或执行器",
             ));
         }
         // Preserve the old explicit turn effort. Milkie inherits this native CODEX_HOME setting.
