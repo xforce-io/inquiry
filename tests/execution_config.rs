@@ -144,3 +144,64 @@ fn framework_storage_symlinks_cannot_alias_native_configuration_or_sessions() {
         }
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn explicit_native_binary_enforces_high_without_mutating_shared_configuration() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut f = ConfigFixture::new();
+    let native = f.root.path().join("native's codex");
+    std::fs::write(&native, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+    std::fs::set_permissions(&native, std::fs::Permissions::from_mode(0o700)).unwrap();
+    f.value["codex_binary"] = json!(native);
+    f.value["reuse_native_login"] = json!(true);
+    let sessions = f.root.path().join("native-config/sessions");
+    std::fs::create_dir(&sessions).unwrap();
+    f.value["session_dir"] = json!(sessions);
+    let config = f.root.path().join("native-config/config.toml");
+    let before = b"model_reasoning_effort='medium'\n";
+    std::fs::write(&config, before).unwrap();
+    f.load().unwrap();
+    let launcher = std::fs::read_dir(f.root.path().join("data"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("codex-launcher-")
+        })
+        .unwrap()
+        .join("codex");
+    let output = std::process::Command::new(&launcher)
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["-c", "model_reasoning_effort=\"high\"", "--version"]
+    );
+    assert_eq!(std::fs::read(&config).unwrap(), before);
+    assert!(!f.root.path().join("native-config/auth.json").exists());
+    // A second assembly may reuse identical generated policy, never overwrite a replacement.
+    f.load().unwrap();
+    std::fs::write(&launcher, "replacement").unwrap();
+    assert_eq!(f.error().path, "/execution/codex");
+}
+
+#[test]
+fn shared_login_requires_explicit_binary_and_the_existing_native_sessions() {
+    let mut f = ConfigFixture::new();
+    f.value["reuse_native_login"] = json!(true);
+    let sessions = f.root.path().join("native-config/sessions");
+    std::fs::create_dir(&sessions).unwrap();
+    f.value["session_dir"] = json!(sessions);
+    assert_eq!(f.error().path, "/execution/storage");
+    f.value["codex_binary"] = f.value["node"].clone();
+    f.value["session_dir"] = json!(f.root.path().join("native-sessions"));
+    assert_eq!(f.error().path, "/execution/storage");
+}

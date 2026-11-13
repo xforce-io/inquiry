@@ -1,6 +1,6 @@
 # Inquiry #7：深度文章能力与质量闭环
 
-版本：v0.3；产品基线：已由用户确认；技术契约：本版本；[Issue #7](https://github.com/xforce-io/inquiry/issues/7)。
+版本：v0.4；产品基线：已由用户确认；技术契约：本版本；[Issue #7](https://github.com/xforce-io/inquiry/issues/7)。
 
 技术修订v0.3只切换当前执行模型为gpt-6.1-sol/high，依据用户“改成GPT-6.1-Sol”。两页路径和Q1–Q6产品标准不变；此前Astra认证失败与实验记录不改写。
 
@@ -168,6 +168,10 @@ flowchart LR
 不增加框架 CLI、独立后台或公网接口。Cookie、Host/Origin、本地监听、CSP、原始输入不可信及跨研究隔离沿用现有边界。
 
 环境复核发现系统DNS为搜索域返回保留IPv6，原边界已拒绝且保留失败。为避免改系统配置，宿主可显式选择 `INQUIRY_DNS_MODE=cloudflare-doh`，默认仍为system。指定模式通过固定Cloudflare HTTPS JSON端点、固定1.1.1.1引导IP及正常TLS验证解析A/AAAA；每次最多6秒、64KiB，核对查询身份、状态及完整性，不跟随重定向、不缓存、不在失败后换解析器。两类全部地址仍经过原公开IP集合校验，再逐跳固定目标IP获取正文；不忽略私有答案，不允许页面/Agent选择解析器。模式列入健康信息和运行环境登记。采用[Cloudflare官方JSON契约](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/)，承认增加第三方解析依赖与网络请求；不宣称DNSSEC覆盖未签名域。
+
+现有登录复用是宿主显式配置选择：`reuse_native_login=true`须同时提供固定原生Codex的绝对文件`codex_binary`，并令session_dir等于config_dir/sessions的实际路径；不自动发现登录、不复制认证、不读取其它会话。未显式选择时沿用独立目录校验。框架业务/Trace/Milkie存储仍不得与原生配置或会话目录交叠。Milkie只操作本次创建的原生会话，原生CLI按自己的正常机制管理登录刷新与会话文件；应用不改config.toml。
+
+提供codex_binary时，Inquiry在自身私有数据目录创建按内容标识、不可覆盖的Unix启动器，只把`-c model_reasoning_effort="high"`置于原生调用前，并在该Milkie子进程PATH中选择启动器及固定二进制同目录的辅助程序。不存在模型/执行器回退，不修改系统PATH；Milkie仍验证固定原生版本。已有启动器内容不符、路径为符号链接、权限非私有或非Unix平台明确拒绝。没有codex_binary时仍要求原生配置默认high；所有模式继续拒绝覆盖profile。启动器依据与原生配置共同进入装配摘要。此技术修订保留产品路径、六项语义要求和运行上限，不降低验证要求。
 
 ## 9 边界
 

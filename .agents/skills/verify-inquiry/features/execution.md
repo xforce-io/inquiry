@@ -14,3 +14,7 @@
 
 - `cargo test --locked --offline --test execution_config`：显式路径/原生high/固定模型、无配置内容回显、非法策略不装配；通过仅表示配置可用，不表示已登录。
 - `MILKIE_NODE=<固定Node> MILKIE_CLI=<固定Milkie构建> INQUIRY_NATIVE_CODEX_DIR=<Codex0.166.0所在目录> cargo test --locked --offline --test native_milkie -- --ignored --nocapture`：实际生产启动器/Sidecar/原生Codex连接本机401端点，核对high、失败元数据Trace、第二请求取消/隔离及SIGTERM退出。仅模拟凭据与拒绝端点，无真实模型成功；不得代替S1报告与S2同一真实研究关联。
+
+## #7 现有登录与固定high接入
+
+原生配置默认medium时，通过显式codex_binary生成任务私有启动器并强制high；使用reuse_native_login时必须指定既有config_dir/sessions真实目录。先跑配置路径/不改配置检查及native_milkie本地401/停止验证；再按运行前登记显式执行`INQUIRY_REAL_PROBE_DIR=<绝对证据目录> INQUIRY_REAL_PROBE_CONFIG=<显式JSON> cargo test --locked --test native_goal_probe -- --ignored --nocapture`，只允许一个真实Planner入口，既定小Run预算拒绝后续文章图。须核对原生执行completed及真实host工具提交，规划仅因max_runs不足被拒；不把预期的整体failed当研究成功，也不以此替代Web或文章语义验收。

@@ -8,9 +8,9 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `98b5ec1c02abbc9612356387d982d6e96b272a21`）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `daf0fbaae905be555b543063a4e0d477ea522be8`，通过公开 Goal/DAG 接口运行方法 0.4.0；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
 
-宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，所有字段必填。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`是提前准备、互不包含且不与框架存储重叠的专用目录。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
+宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，基础字段必填；codex_binary和reuse_native_login为显式可选项。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`须提前准备且不与框架存储重叠；默认使用互不包含的专用目录，显式复用登录的例外见下文。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
 
-专用`config_dir/config.toml`必须显式设置 `model_reasoning_effort = "high"` 且不选择覆盖profile；原生登录由宿主在该目录准备，应用不复制、不读取或回显`auth.json`。配置通过只说明可装配，登录、CLI版本和模型权限仍由实际执行确认。Codex可执行文件必须在宿主PATH中；不自动替换全局安装。
+未提供`codex_binary`时，`config_dir/config.toml`必须显式设置 `model_reasoning_effort = "high"`；所有模式均不选择覆盖profile。显式提供固定Codex绝对文件`codex_binary`时，应用在自身私有目录生成启动器，仅对子进程强制high，不修改全局配置。宿主可显式设置`reuse_native_login=true`复用已有登录，此时须提供codex_binary，并令session_dir指向config_dir/sessions既有实际目录；业务/Trace/Milkie存储仍保持独立。原生CLI正常管理该登录及本次会话，应用不复制凭据。原生登录由宿主在该目录准备，应用不复制、不读取或回显`auth.json`。配置通过只说明可装配，登录、CLI版本和模型权限仍由实际执行确认。Codex可执行文件必须在宿主PATH中；不自动替换全局安装。
 
 ```sh
 npm ci --prefix web

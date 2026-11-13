@@ -7,9 +7,9 @@ description: 在本地真实 Inquiry 上验证研究、可靠性、质量实验�
 
 ## Launch
 
-仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录仅由宿主按本轮明确授权准备于测试专用目录，应用不复制或自动发现全局凭据。当前实际研究固定 gpt-6.1-sol/high（2026-11-13用户指定）；历史Astra实验保留原版本，模型不回退。
+仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录由宿主按授权显式提供，默认测试专用目录，或显式reuse_native_login复用现有登录；应用不复制或自动发现全局凭据。当前实际研究固定 gpt-6.1-sol/high（2026-11-13用户指定）；历史Astra实验保留原版本，模型不回退。
 
-Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；配置通过不代表账号/模型就绪。方法0.4.0的Milkie固定构建98b5ec1c02abbc9612356387d982d6e96b272a21（execution-sidecar协议）；Codex与同版codex-code-mode-host均在任务专用PATH中，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked；宿主仅在用户明确授权后准备专用登录，不用本机401夹具当报告验收。
+Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；或显式codex_binary，由私有启动器对子进程覆盖high。复用既有登录须显式reuse_native_login=true，session_dir等于config_dir/sessions实际路径，框架存储仍隔离；不改全局配置、不复制认证。配置通过不代表账号/模型就绪。方法0.4.0的Milkie固定构建98b5ec1c02abbc9612356387d982d6e96b272a21（execution-sidecar协议）；Codex与同版codex-code-mode-host均在任务专用PATH中，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked；宿主仅在用户明确授权后准备专用登录，不用本机401夹具当报告验收。
 
 `INQUIRY_DATA_DIR`指向本次专用私有目录，`INQUIRY_PORT`默认3410，运行 `INQUIRY_EXECUTION_CONFIG=<绝对路径> cargo run --locked`。只监听127.0.0.1，不部署公网。默认system DNS；必要时宿主显式选择INQUIRY_DNS_MODE=cloudflare-doh，健康信息记录该模式。该模式的全部地址仍须通过公开地址边界，不忽略私有答案、不自动回退；真实采集前零模型验证网络。旧#2直接Codex启动方式只用于原历史证据的版本对照，不用于证明新链路。
 
@@ -18,7 +18,7 @@ Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置�
 1. 工作树干净，记录候选完整SHA、Cargo.lock摘要与 TaskLoop rev；正式候选构建后不可改方法包/资源。
 2. `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、前端 build 通过。确定性测试中的 synthetic 数据不能当模型/产品成果。
 3. `/api/health` 的 build 必须等于候选，浏览器 `document.documentElement.dataset.build` 相同。只做读取确认，不用脚本直接创建以冒充界面操作。
-4. 私有目录保留TaskLoop业务/Trace store、Milkie数据和专用原生会话；旧research-audit.ndjson原样保留，新链路不再另写原始工具日志。记录Milkie CLI摘要、三个仓库SHA、实际模型/推理配置、耗时和可得用量，未知不补零。
+4. 私有目录保留TaskLoop业务/Trace store、Milkie数据和原生会话位置（以显式session_dir为准，只操作本次Trace绑定的会话）；旧research-audit.ndjson原样保留，新链路不再另写原始工具日志。记录Milkie CLI摘要、三个仓库SHA、实际模型/推理配置、耗时和可得用量，未知不补零。
 5. **首次真实研究前**按适用Issue封存输入和运行边界。#2质量实验仍按其L2 §11.2–11.7登记共同提示词、UTC时间、摘要、匿名随机映射和评分协议；#3同题迁移功能复验只封存原Vertex输入、候选/依赖和两次旧失败索引，不启动第三轮SOTA质量实验。没有相应登记不得生成报告。#7采用docs/experiments/7-quality-protocol-draft.md及其运行前登记：复杂Palantir Vertex原题、Q1–Q6全通过、一次修订、独立隔离效果评价、直接生成和同资料一次生成对照；不能复用#2旧分数作本票证明。
 
 ## Drive

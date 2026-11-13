@@ -14,5 +14,7 @@
     "max_total_bytes": 4194304,
     "max_runs": 16,
     "retention_ms": 60000
-  }
+  },
+  "codex_binary": "/absolute/path/to/fixed-codex/codex",
+  "reuse_native_login": false
 }

@@ -67,3 +67,9 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 用户要求改用GPT-6.1-Sol，并指出当前会话正在正常使用。按同一固定Codex0.166.0、Sol/high及无工具OK提示对照：旧专用CODEX_HOME仍401；当前用户~/.codex成功退出0、返回OK、无工具调用。证据work/verify/7-auth-sol-1/result.json及7-auth-sol-current-home/result.json；累计6次模型入口，不把失败清零。当前登录有效，先前将旧隔离环境失败泛化为当前账号失效不准确，不应继续要求用户重登有效账号。未复制认证文件或修改全局配置。
 
 当前模型约束、示例连接、配置/原生测试及现行方法说明切换为gpt-6.1-sol/high；设计v0.3、协议v0.4，保留原Astra历史与首批登记。此修改不宣称Milkie/Goal/Web或文章质量通过。当前用户原生配置默认medium，直接烟测通过显式high覆盖；应用接入有效登录时仍须保留显式high、配置与会话隔离边界，不暗改全局配置来绕过校验。
+
+## 有效登录接入调查与修正（2026-11-13）
+
+直接原生Sol/high成功后，按相同当前登录目录配置实际Web宿主仍在启动前拒绝：/execution/storage“配置与会话必须使用互不包含的专用目录”，日志work/verify/7-native-shared-config/before.log。源码src/execution.rs的目录包含检查及默认high要求阻碍标准原生布局；Milkie src/execution/adapters.ts::bindGrokSessions要求session_dir恰等于config_dir/sessions实际路径，codex.ts通过当前CODEX_HOME继承配置，没有已有请求级effort字段。因此不复制旧认证、不改用户global config、不在Milkie/TaskLoop扩展通用协议，采用Inquiry拥有的显式codex_binary私有启动器与reuse_native_login选项。L1 reuse：已确认产品路径/模型/高推理不变；L2 write：设计v0.4说明存储/启动参数及失败边界。
+
+新增配置集成检查实际执行带单引号的二进制路径，验证high参数完整转发、用户medium原字节不变、没有读取/创建认证、旧模式拒绝嵌套、复用必须显式指定二进制和真实sessions。原生401测试改为medium默认+启动器，须由实际提供者请求证明high而非只看脚本。开发首编译发现PATH临时值生命周期错误，已改为持有变量；原错误日志保留，不属于模型失败。

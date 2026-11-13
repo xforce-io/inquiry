@@ -15,6 +15,10 @@ struct ExecutionConfig {
     connection_file: PathBuf,
     config_dir: PathBuf,
     session_dir: PathBuf,
+    #[serde(default)]
+    codex_binary: Option<PathBuf>,
+    #[serde(default)]
+    reuse_native_login: bool,
     trace: TraceConfig,
 }
 #[derive(Deserialize)]
@@ -90,6 +94,66 @@ fn absolute_directory(path: &Path) -> Result<PathBuf> {
     }
     Ok(real)
 }
+#[cfg(unix)]
+fn install_codex_launcher(data: &Path, binary: &Path) -> Result<(PathBuf, Vec<u8>)> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let binary = binary
+        .to_str()
+        .ok_or_else(|| invalid("/execution/codex", "原生路径须为有效UTF-8"))?;
+    let quoted = format!("'{}'", binary.replace('\'', "'\"'\"'"));
+    let script = format!("#!/bin/sh\nexec {quoted} -c 'model_reasoning_effort=\"high\"' \"$@\"\n")
+        .into_bytes();
+    let directory = data.join(format!("codex-launcher-{}", crate::domain::hash(&script)));
+    match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let meta = std::fs::symlink_metadata(&directory)?;
+            if !meta.is_dir() || meta.is_symlink() || meta.permissions().mode() & 0o077 != 0 {
+                return Err(invalid(
+                    "/execution/codex",
+                    "原生启动目录必须为私有普通目录",
+                ));
+            }
+        }
+        Err(e) => return Err(e.into()),
+    }
+    let file = directory.join("codex");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o700)
+        .open(&file)
+    {
+        Ok(mut output) => {
+            output.write_all(&script)?;
+            output.sync_all()?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let meta = std::fs::symlink_metadata(&file)?;
+            if !meta.is_file()
+                || meta.is_symlink()
+                || meta.permissions().mode() & 0o077 != 0
+                || meta.permissions().mode() & 0o100 == 0
+                || read_bounded(&file, 65536)? != script
+            {
+                return Err(invalid(
+                    "/execution/codex",
+                    "既有原生启动器身份或权限不匹配",
+                ));
+            }
+        }
+        Err(e) => return Err(e.into()),
+    }
+    Ok((directory, script))
+}
+#[cfg(not(unix))]
+fn install_codex_launcher(_: &Path, _: &Path) -> Result<(PathBuf, Vec<u8>)> {
+    Err(invalid(
+        "/execution/codex",
+        "显式原生启动器当前仅支持Unix平台",
+    ))
+}
 /// A validated assembly. Only the native adapter reads auth.json.
 pub struct ExecutionSetup {
     executor: Arc<MilkieExecutor>,
@@ -110,7 +174,28 @@ impl ExecutionSetup {
         let connection = absolute_file(&config.connection_file)?;
         let config_dir = absolute_directory(&config.config_dir)?;
         let session_dir = absolute_directory(&config.session_dir)?;
-        if config_dir.starts_with(&session_dir) || session_dir.starts_with(&config_dir) {
+        let codex_binary = config
+            .codex_binary
+            .as_deref()
+            .map(absolute_file)
+            .transpose()?;
+        if config.reuse_native_login {
+            let native_sessions = config_dir.join("sessions").canonicalize().map_err(|_| {
+                invalid(
+                    "/execution/storage",
+                    "复用登录须提供既有config_dir/sessions",
+                )
+            })?;
+            if codex_binary.is_none()
+                || native_sessions != session_dir
+                || config_dir.starts_with(&session_dir)
+            {
+                return Err(invalid(
+                    "/execution/storage",
+                    "复用登录须显式指定codex_binary及其既有sessions目录",
+                ));
+            }
+        } else if config_dir.starts_with(&session_dir) || session_dir.starts_with(&config_dir) {
             return Err(invalid(
                 "/execution/storage",
                 "配置与会话必须使用互不包含的专用目录",
@@ -139,8 +224,8 @@ impl ExecutionSetup {
                 "研究固定使用gpt-6.1-sol及原生Codex，不回退模型或执行器",
             ));
         }
-        // Preserve the old explicit turn effort. Milkie inherits this native CODEX_HOME setting.
-        // Reject profile selection, which could override the root effort.
+        // Either require the explicit native default or enforce high in our private launcher.
+        // Never edit the user's shared native configuration.
         let native = read_bounded(&absolute_file(&config_dir.join("config.toml"))?, 1_048_576)?;
         let settings: toml::Value = std::str::from_utf8(&native)
             .ok()
@@ -151,15 +236,16 @@ impl ExecutionSetup {
                     "专用原生配置不是有效TOML；未输出配置内容",
                 )
             })?;
-        if settings
-            .get("model_reasoning_effort")
-            .and_then(toml::Value::as_str)
-            != Some("high")
+        if (codex_binary.is_none()
+            && settings
+                .get("model_reasoning_effort")
+                .and_then(toml::Value::as_str)
+                != Some("high"))
             || settings.get("profile").is_some()
         {
             return Err(invalid(
                 "/execution/native",
-                "专用Codex配置必须显式设置model_reasoning_effort=high且不选择覆盖profile",
+                "未提供固定codex_binary时原生配置须显式high；所有模式均不允许覆盖profile",
             ));
         }
         std::fs::create_dir_all(data)?;
@@ -182,7 +268,7 @@ impl ExecutionSetup {
                 }
             }
         }
-        let milkie = MilkieConfig::new(
+        let mut milkie = MilkieConfig::new(
             node,
             connection,
             data.join("milkie"),
@@ -192,8 +278,24 @@ impl ExecutionSetup {
             },
         )?
         .args([cli.as_os_str()]);
-        // Source settings are host policy facts, not Agent-provided configuration.
-        let binding = crate::domain::hash(&[bytes, native, conn_bytes].concat());
+        let launcher = if let Some(binary) = codex_binary {
+            let (directory, script) = install_codex_launcher(&data, &binary)?;
+            let inherited_path = std::env::var_os("PATH").unwrap_or_default();
+            let search = [
+                directory,
+                binary.parent().expect("absolute file parent").to_owned(),
+            ]
+            .into_iter()
+            .chain(std::env::split_paths(&inherited_path));
+            let path = std::env::join_paths(search)
+                .map_err(|_| invalid("/execution/codex", "无法构造原生启动路径"))?;
+            milkie = milkie.env("PATH", path);
+            script
+        } else {
+            Vec::new()
+        };
+        // Source settings and generated policy are host facts, never Agent-provided arguments.
+        let binding = crate::domain::hash(&[bytes, native, conn_bytes, launcher].concat());
         Ok(Self {
             executor: Arc::new(MilkieExecutor::new(milkie)?),
             trace: TraceOptions {
