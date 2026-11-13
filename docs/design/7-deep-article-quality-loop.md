@@ -1,6 +1,6 @@
 # Inquiry #7：深度文章能力与质量闭环
 
-版本：v0.4；产品基线：已由用户确认；技术契约：本版本；[Issue #7](https://github.com/xforce-io/inquiry/issues/7)。
+版本：v0.5；产品基线：已由用户确认；技术契约：本版本；[Issue #7](https://github.com/xforce-io/inquiry/issues/7)。
 
 技术修订v0.3只切换当前执行模型为gpt-6.1-sol/high，依据用户“改成GPT-6.1-Sol”。两页路径和Q1–Q6产品标准不变；此前Astra认证失败与实验记录不改写。
 
@@ -103,7 +103,7 @@ R6：最终内容评价逐项检查下表，必需项不能靠总分平均抵消
 
 ### 6.1 分层与主路径
 
-Web 沿用创建、详情、来源抽屉；Rust HTTP 层校验本地会话/Origin、输入及研究内产物归属，只投影公开状态。Inquiry 的注册工厂提供固定前向 Workflow、领域 Schema、研究方法、资料工具和检查器。TaskLoop 固定 `daf0fbaae905be555b543063a4e0d477ea522be8`，统一执行、接纳、预算、取消及持久恢复；模型仍经 Milkie/Codex，不能另造执行状态权威。
+Web 沿用创建、详情、来源抽屉；Rust HTTP 层校验本地会话/Origin、输入及研究内产物归属，只投影公开状态。Inquiry 的注册工厂提供固定前向 Workflow、领域 Schema、研究方法、资料工具和检查器。TaskLoop 固定 `daf0fbaae905be555b543063a4e0d477ea522be8`，统一执行、接纳、预算、取消及持久恢复；模型仍经 Milkie/Codex，不能另造执行状态权威。 本批Milkie固定为#281的216522e修复候选（完整SHA在事前登记，尚未合入），仅修正Codex合法全局warning的可空threadId解释；真实工具及执行身份校验保留，TaskLoop依赖不变。原98b5ec1失败留证，不以替换依赖改写历史。
 
 ```mermaid
 flowchart LR

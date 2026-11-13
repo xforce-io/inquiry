@@ -85,3 +85,12 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 源码调查：Milkie src/execution/codex.ts::message对所有通知的顶层threadId/turnId执行全局相等检查，run另检查turn/start回执和session路径；本次保存文件的session ID、cwd、model和effort均匹配。仅凭现有Trace尚不能判定具体触发通知或根因。固定原生CLI接本机合成Responses提供者，普通文本、动态工具、当前登录目录中的显式本机提供者和双app-server共享存储均完成，未复现相同错误；这些试验没有真实模型入口，不能当作修复证明。后续若必须真实复验，需事前登记只记录协议方法/身份的透传诊断，并保持现有校验及累计额度，不直接放宽身份边界。
 
 受控停止未确认路径已实际点击并显示“正在确认停止”，没有提前显示已停止；随后向自有Rust测试子进程发送SIGINT，夹具完成runtime.shutdown并正常退出0，browser-fixture.log记录1 passed/0 failed。全部受控结果仍绑定bb2cbe1，不改标为后续候选；终态通用错误文案修正沿用L1 v0.2与L2 v0.4，不改变状态判定，前端构建通过（ui-wording-build.log）。所有真实文章及独立效果验收仍未完成，不能进入独立代码审查或合入。
+
+
+## 全局警告根因与下一批依赖（2026-11-13）
+
+新增单入口透传诊断仍失败，保留work/verify/7-sol-protocol-3dbe328。确切触发帧为warning(threadId:null)，原生0.166.0协议允许全局警告无具体会话目标；Milkie全局比较误当真实错配。累计真实入口8次，不是认证失败，不再以其他会话并发假设代替根因。
+
+已建[Milkie #281](https://github.com/xforce-io/milkie/issues/281)，修复候选216522e只为合法无id、message为字符串的全局warning允许null目标；其它会话警告、工具缺会话、错误轮次仍拒绝。固定真实Codex配本地合成提供者的原入口对照：旧代码session_mismatch，新代码succeeded/OK、1次宿主效果、2次本地提供者请求、停止确认；零真实模型。Milkie独立审查及合入仍待完成，不能冒充已发布依赖。本批Inquiry技术设计v0.5及本地驾驶手册显式锁定该修复，产品基线v0.2和质量协议v0.4不变。
+
+剩余22个真实入口以内安排：复杂正例最多8、真实语义负例1、两对照2、隔离效果评价8、分歧裁决最多1、两仓独立代码审查预留2。总量仍30，不保证失败后必有重试余量；每批前核对累计，若需越界再集中报告具体缺口。首篇未成稿/未达标仍停止后续效果比较，不把接入探针算作代表文章。
