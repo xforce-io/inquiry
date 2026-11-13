@@ -337,13 +337,16 @@ impl HttpFixture {
         Self::with_collection(agent, false).await
     }
     async fn with_collection(agent: Arc<dyn Executor>, native: bool) -> Self {
-        let dir = tempfile::tempdir().unwrap();
         let bindings = orchestration::bindings(agent.clone(), "http-goal-test".into());
         let bindings = if native {
             bindings
         } else {
             bindings.executor("article.collect", agent)
         };
+        Self::with_bindings(bindings).await
+    }
+    async fn with_bindings(bindings: HostBindings) -> Self {
+        let dir = tempfile::tempdir().unwrap();
         let (registry, options) =
             orchestration::registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
         let runtime = Arc::new(
@@ -746,6 +749,18 @@ async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_b
         value.sources.iter().any(|s| s.fact["usable"] == true),
         "no saved source: {value:?}"
     );
+    println!(
+        "{}",
+        json!({"probe_sources":value.sources.iter().map(|s|json!({"url":s.fact["requested_url"],"fact":s.fact,"paragraphs":s.paragraphs.len()})).collect::<Vec<_>>(),"searches":value.searches})
+    );
+    assert!(
+        value.sources.iter().any(|s| s.fact["usable"] == true
+            && s.fact["requested_url"]
+                .as_str()
+                .is_some_and(|u| u.starts_with("https://www.palantir.com/docs/foundry/vertex/"))
+            && !s.paragraphs.is_empty()),
+        "no saved official Vertex-specific source"
+    );
     let archive = view["goal"]["artifacts"]
         .as_array()
         .unwrap()
@@ -899,4 +914,197 @@ async fn browser_goal_host() {
         .await
         .unwrap();
     runtime.shutdown().await.unwrap();
+}
+
+struct RecoveryProbe;
+#[async_trait]
+impl Executor for RecoveryProbe {
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        match tools.goal_context().unwrap().role {
+            GoalRunRole::Planner { .. } => {
+                Agent {
+                    final_verdict: "pass",
+                }
+                .execute(inv, tools, cancel)
+                .await
+            }
+            GoalRunRole::NodeMember { node_id, .. } if node_id == "scope" => {
+                tools.call("artifact.write",json!({"slot":"plan","value":{"subquestions":["Recovery fixture"],"search_queries":["q"],"stop_reason":"Controlled test; zero models"}})).await.unwrap();
+                ExecutionOutcome::Completed {
+                    usage: json!({"model":false}),
+                }
+            }
+            GoalRunRole::NodeMember { node_id, .. } if node_id == "analyze" => {
+                tools.call("artifact.write",json!({"slot":"analysis","value":{"evidence":[],"judgments":[],"decision":"need_input","gaps":["Temporary source unavailable"],"coverage":[],"search_queries":["q"]}})).await.unwrap();
+                ExecutionOutcome::Completed {
+                    usage: json!({"model":false}),
+                }
+            }
+            _ => ExecutionOutcome::Failed {
+                code: "probe_complete".into(),
+                message: "Stop after both native collection rounds; zero models".into(),
+            },
+        }
+    }
+}
+#[derive(Default)]
+struct RecoveryScript {
+    delay_ms: u64,
+    searches: std::sync::atomic::AtomicUsize,
+    fetches: std::sync::Mutex<Vec<(String, String)>>,
+}
+struct RecoveryTool {
+    id: &'static str,
+    script: Arc<RecoveryScript>,
+}
+#[async_trait]
+impl DomainTool for RecoveryTool {
+    fn spec(&self) -> ToolSpec {
+        if self.id == "inquiry.search" {
+            inquiry::domain::Search::default().spec()
+        } else {
+            article::FetchSource.spec()
+        }
+    }
+    async fn call(&self, context: ToolContext, args: Value) -> Result<ToolOutput> {
+        if self.id == "inquiry.search" {
+            if self
+                .script
+                .searches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                == 0
+            {
+                return Ok(ToolOutput::json(
+                    json!({"query":"q","status":"unavailable","results":[],"retryable":true,"retry_after_ms":self.script.delay_ms.max(1),"fetch_attempts":1,"upstream_requests":null}),
+                ));
+            }
+            return Ok(ToolOutput::json(
+                json!({"query":"q","status":"discovered","retryable":false,"fetch_attempts":1,"results":(["transient","saved","denied","not-found","saved","later"].iter().map(|p|json!({"url":format!("https://example.com/{p}")})).collect::<Vec<_>>())}),
+            ));
+        }
+        let GoalRunRole::NodeMember { node_id, .. } = &context.goal().unwrap().role else {
+            panic!("non-node fetch")
+        };
+        let url = args["url"].as_str().unwrap();
+        self.script
+            .fetches
+            .lock()
+            .unwrap()
+            .push((node_id.clone(), url.into()));
+        let usable = url.ends_with("saved")
+            || url.ends_with("later")
+            || (url.ends_with("transient") && node_id == "supplement");
+        let status = if usable {
+            "captured"
+        } else if url.ends_with("denied") {
+            "denied"
+        } else {
+            "unavailable"
+        };
+        let http = if usable {
+            Some(200)
+        } else if url.ends_with("not-found") {
+            Some(404)
+        } else {
+            None
+        };
+        Ok(ToolOutput::json(
+            json!({"fact":{"requested_url":url,"usable":usable,"fetch_status":status,"http_status":http,"reason":"Controlled fixture; not real source"},"paragraphs":if usable {vec!["Controlled saved text"]} else {vec![]},"raw":null}),
+        ))
+    }
+}
+#[tokio::test]
+async fn native_goal_recovers_search_and_retries_only_temporary_sources_in_supplement() {
+    let script = Arc::new(RecoveryScript::default());
+    let mut bindings =
+        orchestration::bindings(Arc::new(RecoveryProbe), "native-recovery-fixture".into());
+    for id in ["inquiry.search", "inquiry.article_fetch"] {
+        bindings = bindings.tool(Arc::new(RecoveryTool {
+            id,
+            script: script.clone(),
+        }));
+    }
+    let fixture = HttpFixture::with_bindings(bindings).await;
+    let id = fixture.create("native-recovery").await;
+    let view = fixture.wait(&id, "failed").await;
+    let outputs = view["outputs"].as_array().unwrap();
+    let corpus = |stage: &str| {
+        outputs
+            .iter()
+            .find(|o| o["stage"] == stage && o["artifact"]["slot"] == "corpus")
+            .unwrap()["value"]
+            .clone()
+    };
+    let first = corpus("collect");
+    let second = corpus("supplement");
+    assert_eq!(first["sources"].as_array().unwrap().len(), 5);
+    assert_eq!(first["sources"][0]["fact"]["usable"], false);
+    assert_eq!(first["searches"][0]["status"], "discovered");
+    assert_eq!(
+        first["searches"][0]["recovery"]["previous_results"][0]["status"],
+        "unavailable"
+    );
+    assert_eq!(second["sources"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        second["sources"][0]["fact"]["requested_url"],
+        "https://example.com/transient"
+    );
+    assert_eq!(second["sources"][0]["fact"]["usable"], true);
+    assert_eq!(script.searches.load(std::sync::atomic::Ordering::SeqCst), 3);
+    assert_eq!(
+        script
+            .fetches
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(node, _)| node == "supplement")
+            .count(),
+        1
+    );
+    assert_eq!(view["goal"]["nodes"]["supplement"]["status"], "succeeded");
+    fixture.runtime.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn public_goal_cancel_during_native_search_cooldown_stops_before_retry_or_fetch() {
+    let script = Arc::new(RecoveryScript {
+        delay_ms: 60000,
+        ..Default::default()
+    });
+    let mut bindings =
+        orchestration::bindings(Arc::new(RecoveryProbe), "native-cancel-fixture".into());
+    for id in ["inquiry.search", "inquiry.article_fetch"] {
+        bindings = bindings.tool(Arc::new(RecoveryTool {
+            id,
+            script: script.clone(),
+        }));
+    }
+    let fixture = HttpFixture::with_bindings(bindings).await;
+    let id = fixture.create("cancel-native-cooldown").await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while script.searches.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, before) = fixture
+        .request("GET", &format!("/api/research/{id}"), None)
+        .await;
+    let (code,result)=fixture.request("POST",&format!("/api/research/{id}/cancel"),Some(json!({"request_key":"stop-cooldown","expected_revision":before["snapshot"]["revision"]}))).await;
+    assert_eq!(code, 200, "{result}");
+    fixture.wait(&id, "cancelled").await;
+    fixture.runtime.shutdown().await.unwrap();
+    assert_eq!(script.searches.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(script.fetches.lock().unwrap().is_empty());
 }

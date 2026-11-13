@@ -13,3 +13,13 @@
 受控浏览器宿主：`INQUIRY_RECOVERY_TEST_DATA=<私有绝对目录> INQUIRY_RECOVERY_TEST_PORT=3425 cargo test --locked --lib search::tests::browser_recovery_host -- --ignored --nocapture`。仅cfg(test)注入HTTP脚本与确定性执行器，使用候选相同的Search/Router/Runtime/前端；输入`恢复`、`持续`、`冷却`分别触发相应故障。生产宿主没有此替换入口。
 
 关联[研究闭环](research.md)、[来源](sources.md)、[执行](execution.md)、[可靠性](reliability.md)。验证数据落在`work/verify/5-<候选>/`，保留原始故障和每次人工介入。
+
+## Issue #7 / S2.A3、S3.A4、S4.A2
+
+按设计v0.6 §6.2/6.4，首轮与预定补查各最多8条逻辑查询、20个真实候选，遍历实际返回结果并去重。补查排除已可用、安全拒绝及永久HTTP失败；临时网络/DNS、408/425/429/5xx、容量未接纳的来源可再次获取，旧失败留存。
+
+Search内部3次fetch/30秒不变；Native Goal在回调外每轮最多2次额外调用、累计计划等待≤120秒，仍受480秒节点及Goal总限额。recovery.previous_results和scheduled_wait_ms保留每次返回及等待，原fetch_attempts不改写，未知上游请求不补零。超过余额不提前请求；取消等待后不再搜索。旧Flow的8次调用及原等待路径不变。
+
+确定性入口：`cargo test --locked --lib recovery_tests`，覆盖第6项及以后真实结果、20上限、重取分类、同query恢复、全轮共享次数/等待边界、计量及取消。零模型真实入口：`INQUIRY_DNS_MODE=cloudflare-doh cargo test --locked --test article_goal native_collection_saves_actual_search_origins_normalized_text_and_raw_bytes -- --ignored --nocapture`，核对至少1份Vertex专属正文及原始/规范化摘要。网络探针和受控恢复不能替代真实复杂文章与语义负例。
+
+公开Runtime回归：`cargo test --locked --test article_goal native_goal_recovers_search_and_retries_only_temporary_sources_in_supplement`核对两轮留存与重取；`cargo test --locked --test article_goal public_goal_cancel_during_native_search_cooldown_stops_before_retry_or_fetch`通过HTTP取消冷却中的原生节点，正常shutdown后确认无后续搜索/获取。

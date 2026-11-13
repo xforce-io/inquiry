@@ -168,7 +168,7 @@ impl Search {
 #[async_trait]
 impl DomainTool for Search {
     fn spec(&self) -> ToolSpec {
-        ToolSpec{id:"inquiry.search".into(),description:"Discover public URLs; not fetched evidence. At most eight calls per entry. If unavailable, stop searching and submit actual queries/receipts and genuine candidates. Transport recovery uses at most three fetch attempts in 30 seconds and shares provider cooldown.".into(),input_schema:json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":300}},"required":["query"],"additionalProperties":false})}
+        ToolSpec{id:"inquiry.search".into(),description:"Discover public URLs; not fetched evidence. Legacy Flow: at most eight calls per entry; if unavailable, stop searching and submit actual queries/receipts and genuine candidates. Native Goal collection: at most eight distinct queries plus two bounded caller recovery calls; preserve every attempt and observe declared cooldown outside this callback. Transport recovery uses at most three fetch attempts in 30 seconds and shares provider cooldown.".into(),input_schema:json!({"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":300}},"required":["query"],"additionalProperties":false})}
     }
     async fn call(&self, c: ToolContext, args: Value) -> Result<ToolOutput> {
         let query = args["query"]

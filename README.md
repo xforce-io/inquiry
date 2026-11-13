@@ -6,7 +6,7 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `98b5ec1c02abbc9612356387d982d6e96b272a21`）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `daf0fbaae905be555b543063a4e0d477ea522be8`，通过公开 Goal/DAG 接口运行方法 0.4.0；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `216522e1685df608514f02ce451666ece3f28c57`，已随 Milkie PR #282 合入；未发布包）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `daf0fbaae905be555b543063a4e0d477ea522be8`，通过公开 Goal/DAG 接口运行方法 0.4.0；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
 
 宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，基础字段必填；codex_binary和reuse_native_login为显式可选项。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`须提前准备且不与框架存储重叠；默认使用互不包含的专用目录，显式复用登录的例外见下文。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
 
@@ -49,6 +49,8 @@ npm run build --prefix web
 - [名词表](docs/glossary.md)
 - [前置领域设计](docs/design/1-minimal-research-loop.md)
 - [TaskLoop 已交付 PR #4](https://github.com/xforce-io/taskloop/pull/4)
+
+#7 首篇真实复杂文章在 `78ce9da` 完成初稿、独立评价与一次修订，终态 **未达标**：Vertex 专属资料抓取失败，关键用户路径和产品边界仍有决定性缺口。最终原生检查拒绝，最终语义评价未启动；本批对照/效果评价依协议停止。详见[首篇记录](docs/experiments/7-first-article-78ce9da.md)。采集修复和后续验证进行中，不能宣称深度文章能力已通过。
 
 ## 执行诊断与迁移状态（Issue #3）
 

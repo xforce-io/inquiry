@@ -219,7 +219,12 @@ fn candidates(
     for url in seeds {
         add(url, "user-input".into());
     }
-    for rank in 0..5 {
+    for rank in 0..searches
+        .iter()
+        .filter_map(|s| s["results"].as_array().map(Vec::len))
+        .max()
+        .unwrap_or(0)
+    {
         for search in searches {
             if search["status"] == "discovered"
                 && let Some(url) = search["results"][rank]["url"].as_str()
@@ -250,8 +255,83 @@ fn trim_paragraphs(paragraphs: &[Value]) -> (Vec<String>, bool) {
     }
     (out, truncated)
 }
+// A previous round remains immutable; only temporary failures are eligible again.
+fn exclude_source(fact: &Value) -> bool {
+    if fact["usable"] == true || fact["fetch_status"] == "denied" {
+        return true;
+    }
+    match fact["fetch_status"].as_str() {
+        Some("captured") => false, // This round may have rejected it at its capacity boundary.
+        Some("unavailable") => !matches!(
+            fact["http_status"].as_u64(),
+            None | Some(408 | 425 | 429 | 500..=599)
+        ),
+        _ => true,
+    }
+}
+#[derive(Default)]
+struct SearchRecovery {
+    retries: u8,
+    scheduled_wait_ms: u64,
+}
+impl SearchRecovery {
+    fn reserve(&mut self, result: &Value) -> Option<u64> {
+        let wait = result["retry_after_ms"].as_u64()?;
+        if result["status"] != "unavailable"
+            || result["retryable"] != true
+            || self.retries >= 2
+            || wait > 120_000 - self.scheduled_wait_ms
+        {
+            return None;
+        }
+        self.retries += 1;
+        self.scheduled_wait_ms += wait;
+        Some(wait)
+    }
+}
+async fn collect_searches(
+    queries: Vec<String>,
+    tools: &Arc<dyn ToolBridge>,
+    cancel: &CancellationToken,
+) -> Result<Vec<Value>> {
+    let mut searches = Vec::new();
+    let mut recovery = SearchRecovery::default();
+    for query in queries {
+        let mut previous = Vec::new();
+        let mut waits = Vec::new();
+        loop {
+            let response = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(fault("资料采集已取消")),
+                response = tools.call("inquiry.search", json!({"query":query})) => response?,
+            };
+            let mut result = response["result"].clone();
+            if let Some(wait) = recovery.reserve(&result) {
+                previous.push(result);
+                waits.push(wait);
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(fault("资料采集已取消")),
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(wait)) => {},
+                }
+                continue;
+            }
+            if !previous.is_empty() {
+                result["recovery"] = json!({"previous_results":previous,"scheduled_wait_ms":waits});
+            }
+            searches.push(result);
+            break;
+        }
+    }
+    Ok(searches)
+}
 /// Each actual search/fetch is one bounded callback; native assembly is inside one Run.
-async fn collect(inv: &Invocation, tools: &Arc<dyn ToolBridge>, round: u8) -> Result<Value> {
+async fn collect(
+    inv: &Invocation,
+    tools: &Arc<dyn ToolBridge>,
+    round: u8,
+    cancel: &CancellationToken,
+) -> Result<Value> {
     let mut queries = Vec::new();
     let mut excluded = BTreeSet::new();
     for reference in &inv.artifacts {
@@ -286,7 +366,9 @@ async fn collect(inv: &Invocation, tools: &Arc<dyn ToolBridge>, round: u8) -> Re
         }
         if a.reference.slot == "corpus" {
             for s in corpus(&a)?.sources {
-                if let Some(url) = s.fact["requested_url"].as_str() {
+                if exclude_source(&s.fact)
+                    && let Some(url) = s.fact["requested_url"].as_str()
+                {
                     excluded.insert(url.to_owned());
                 }
             }
@@ -314,10 +396,7 @@ async fn collect(inv: &Invocation, tools: &Arc<dyn ToolBridge>, round: u8) -> Re
         searches: vec![],
         limitations: vec![],
     };
-    for query in queries {
-        let search = tools.call("inquiry.search", json!({"query":query})).await?;
-        output.searches.push(search["result"].clone());
-    }
+    output.searches = collect_searches(queries, tools, cancel).await?;
     let selected = candidates(&seeds, &output.searches, &excluded);
     let mut archive = BTreeMap::<String, Value>::new();
     for (index, (url, origin)) in selected.into_iter().enumerate() {
@@ -464,13 +543,13 @@ impl Executor for Native {
         &self,
         inv: Invocation,
         tools: Arc<dyn ToolBridge>,
-        _: CancellationToken,
+        cancel: CancellationToken,
     ) -> ExecutionOutcome {
         let result: Result<()> = async {
             match self {
                 Self::Collect => {
                     let GoalRunRole::NodeMember { node_id, .. } = tools.goal_context().ok_or_else(|| fault("缺少 Goal 归属"))?.role else { return Err(fault("原生资料节点归属无效")); };
-                    let response = collect(&inv, &tools, if node_id=="collect" {1} else {2}).await?;
+                    let response = collect(&inv, &tools, if node_id=="collect" {1} else {2}, &cancel).await?;
                     for slot in ["corpus", "archive"] {
                         tools.call("artifact.write", json!({"slot":slot,"value":response[slot]})).await?;
                     }
@@ -491,6 +570,7 @@ impl Executor for Native {
             Ok(()) => ExecutionOutcome::Completed {
                 usage: json!({"native_model":false}),
             },
+            Err(_) if cancel.is_cancelled() => ExecutionOutcome::Cancelled,
             Err(e) => ExecutionOutcome::Failed {
                 code: e.code,
                 message: e.message,
@@ -531,3 +611,7 @@ mod tests {
         assert_eq!(saved[0].chars().count(), 20000);
     }
 }
+
+#[cfg(test)]
+#[path = "article/tests.rs"]
+mod recovery_tests;
