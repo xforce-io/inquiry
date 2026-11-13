@@ -32,8 +32,6 @@ async fn real_native_planner_submits_through_production_goal_binding() {
     let question = "请生成一份Palantir Foundry中Vertex的中文产品深度研究，覆盖定位、能力、用户路径、技术机制、与Ontology/Foundry/AIP/Workshop关系、场景、限制和替代方案。不是Google Vertex AI。当前入口只规划给定模板，不执行研究。";
     let mut limits = inquiry::orchestration::limits();
     limits.max_runs = 3;
-    limits.max_active_ms = 180000;
-    limits.max_wall_ms = 200000;
     let id=goals.submit(GoalRequest{protocol_version:1,request_key:"one-native-planner-probe".into(),grant_ref:"local-readonly".into(),spec:GoalSpec{goal:question.into(),inputs:json!({"question":question,"scope":"Registered one-entry execution admission probe; do not treat as article quality","seed_urls":[]}),profile_ref:inquiry::orchestration::PROFILE.into(),planning:GoalPlanning{mode:PlanningMode::Workflow,max_revisions:0,max_planning_ms:180000,template_ref:Some(inquiry::orchestration::TEMPLATE.into())},limits,parent_goal_id:None,imports:vec![]}},&Caller::local()).await.unwrap().goal_id;
     std::fs::write(out.join("goal-id.txt"), &id).unwrap();
     let settled = tokio::time::timeout(Duration::from_secs(205), async {

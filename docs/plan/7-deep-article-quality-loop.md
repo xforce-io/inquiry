@@ -73,3 +73,5 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 直接原生Sol/high成功后，按相同当前登录目录配置实际Web宿主仍在启动前拒绝：/execution/storage“配置与会话必须使用互不包含的专用目录”，日志work/verify/7-native-shared-config/before.log。源码src/execution.rs的目录包含检查及默认high要求阻碍标准原生布局；Milkie src/execution/adapters.ts::bindGrokSessions要求session_dir恰等于config_dir/sessions实际路径，codex.ts通过当前CODEX_HOME继承配置，没有已有请求级effort字段。因此不复制旧认证、不改用户global config、不在Milkie/TaskLoop扩展通用协议，采用Inquiry拥有的显式codex_binary私有启动器与reuse_native_login选项。L1 reuse：已确认产品路径/模型/高推理不变；L2 write：设计v0.4说明存储/启动参数及失败边界。
 
 新增配置集成检查实际执行带单引号的二进制路径，验证high参数完整转发、用户medium原字节不变、没有读取/创建认证、旧模式拒绝嵌套、复用必须显式指定二进制和真实sessions。原生401测试改为medium默认+启动器，须由实际提供者请求证明high而非只看脚本。开发首编译发现PATH临时值生命周期错误，已改为持有变量；原错误日志保留，不属于模型失败。
+
+单入口真实探针首批在提交前被预算准入拒绝：Goal必须同时预留最终检查和首个Planner；将整体活动时间设为180秒不足以容纳270秒最终检查保护，因而没有创建Goal或原生Run，模型入口实际0次。证据work/verify/7-native-probe-bb2cbe1/actual-probe.log。只修正探针的总体时限为既有Goal上限，仍max_runs=3/max_revisions=0、Planner180秒、测试205秒超时收束，完整文章图因Run不足拒绝；不扩大正式研究限额。
