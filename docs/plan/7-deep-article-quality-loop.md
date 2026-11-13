@@ -75,3 +75,13 @@ TaskLoop 两项 P2 已由 [Issue #20](https://github.com/xforce-io/taskloop/issu
 新增配置集成检查实际执行带单引号的二进制路径，验证high参数完整转发、用户medium原字节不变、没有读取/创建认证、旧模式拒绝嵌套、复用必须显式指定二进制和真实sessions。原生401测试改为medium默认+启动器，须由实际提供者请求证明high而非只看脚本。开发首编译发现PATH临时值生命周期错误，已改为持有变量；原错误日志保留，不属于模型失败。
 
 单入口真实探针首批在提交前被预算准入拒绝：Goal必须同时预留最终检查和首个Planner；将整体活动时间设为180秒不足以容纳270秒最终检查保护，因而没有创建Goal或原生Run，模型入口实际0次。证据work/verify/7-native-probe-bb2cbe1/actual-probe.log。只修正探针的总体时限为既有Goal上限，仍max_runs=3/max_revisions=0、Planner180秒、测试205秒超时收束，完整文章图因Run不足拒绝；不扩大正式研究限额。
+
+受控Web驾驶已恢复至空间22（依据用户恢复完整端到端目标，原空间21确已不存在）：bb2cbe1界面完成达标、未达标、检查错误、初稿/最终版本、引用定位及Escape还原焦点/滚动、刷新和公开预算读取。它们全部synthetic/zero models，不作真实质量结论。检查错误页的通用错误文案不应仍称“停止需等确认”，因为该Goal已Finished且停止均已确认；仅改为核对原因后决定是否新建研究，停止确认继续由真实状态单独展示。证据work/verify/7-native-probe-bb2cbe1/controlled-*.txt/png。
+
+## Sol 生产链路探针结果与身份错误调查（2026-11-13）
+
+5ed0cbd单入口真实Planner已越过认证，原生会话白名单元数据确认gpt-6.1-sol/high，tl_artifact_dwrite实际接收并交付一次4075字节候选；随后Milkie以session_mismatch失败，TaskLoop终点planning_exhausted。它不是401，也没有形成文章。Trace记录input14782、cached0、output966；累计真实模型入口7次，已知执行累计600.094秒，早期未知token仍保留未知。登记、快照、Trace、预算与完整累计表均在work/verify/7-native-probe-5ed0cbd/，不重置首批失败。
+
+源码调查：Milkie src/execution/codex.ts::message对所有通知的顶层threadId/turnId执行全局相等检查，run另检查turn/start回执和session路径；本次保存文件的session ID、cwd、model和effort均匹配。仅凭现有Trace尚不能判定具体触发通知或根因。固定原生CLI接本机合成Responses提供者，普通文本、动态工具、当前登录目录中的显式本机提供者和双app-server共享存储均完成，未复现相同错误；这些试验没有真实模型入口，不能当作修复证明。后续若必须真实复验，需事前登记只记录协议方法/身份的透传诊断，并保持现有校验及累计额度，不直接放宽身份边界。
+
+受控停止未确认路径已实际点击并显示“正在确认停止”，没有提前显示已停止；随后向自有Rust测试子进程发送SIGINT，夹具完成runtime.shutdown并正常退出0，browser-fixture.log记录1 passed/0 failed。全部受控结果仍绑定bb2cbe1，不改标为后续候选；终态通用错误文案修正沿用L1 v0.2与L2 v0.4，不改变状态判定，前端构建通过（ui-wording-build.log）。所有真实文章及独立效果验收仍未完成，不能进入独立代码审查或合入。
