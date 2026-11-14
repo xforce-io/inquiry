@@ -169,37 +169,56 @@ pub fn normalize(body: &[u8], content_type: &str) -> Result<Normalized> {
 
 pub(crate) fn search_results(html: &str) -> Vec<Value> {
     let doc = Html::parse_document(html);
-    let snippets = Selector::parse(".snippet[data-type=web]").expect("constant selector");
-    let anchors = Selector::parse("a[href]").expect("constant selector");
-    let title = Selector::parse(".search-snippet-title").expect("constant selector");
+    let titles =
+        Selector::parse("#links .web-result:not(.result--ad) .result__title > a.result__a[href]")
+            .expect("constant selector");
+    let base = url::Url::parse("https://html.duckduckgo.com/html/").expect("constant URL");
     let mut results = Vec::new();
     let mut seen = BTreeSet::new();
-    for snippet in doc.select(&snippets) {
-        for anchor in snippet.select(&anchors) {
-            let label = if let Some(t) = anchor.select(&title).next() {
-                Some(t.text().collect::<String>())
-            } else if anchor.value().classes().any(|c| c == "title") {
-                Some(anchor.text().collect::<String>())
-            } else {
-                None
-            };
-            let Some(label) = label else { continue };
-            let Ok(url) = canonical(anchor.value().attr("href").unwrap_or("")) else {
+    for anchor in doc.select(&titles) {
+        let Some(raw) = anchor.value().attr("href") else {
+            continue;
+        };
+        let Ok(link) = base.join(raw) else { continue };
+        let Ok(mut target) = canonical(link.as_str()) else {
+            continue;
+        };
+        if matches!(
+            link.host_str(),
+            Some("duckduckgo.com" | "html.duckduckgo.com")
+        ) {
+            if link.scheme() != "https"
+                || link.port_or_known_default() != Some(443)
+                || link.path() != "/l/"
+            {
+                continue;
+            }
+            let targets: Vec<_> = link
+                .query_pairs()
+                .filter(|(key, _)| key == "uddg")
+                .collect();
+            if targets.len() != 1 {
+                continue;
+            }
+            let Ok(decoded) = canonical(&targets[0].1) else {
                 continue;
             };
-            if !seen.insert(url.clone()) {
-                continue;
-            }
-            let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
-            if label.is_empty() {
-                continue;
-            }
-            results.push(
-                json!({"url":url,"title":label.chars().take(300).collect::<String>(),"snippet":""}),
-            );
-            if results.len() == 30 {
-                return results;
-            }
+            target = decoded;
+        }
+        let label = anchor
+            .text()
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if label.is_empty() || !seen.insert(target.clone()) {
+            continue;
+        }
+        results.push(
+            json!({"url":target,"title":label.chars().take(300).collect::<String>(),"snippet":""}),
+        );
+        if results.len() == 30 {
+            break;
         }
     }
     results
@@ -795,12 +814,44 @@ mod tests {
     }
     #[test]
     fn search_parser_keeps_only_actual_result_titles_and_links() {
-        let html = r#"<a href="https://advert.example/">Advertisement</a><div class="snippet" data-type="web"><a href="https://example.com/docs"><div class="search-snippet-title">Example Docs</div></a><div class="result-cluster"><div class="snippet"><a class="title" href="https://example.com/deep">Deep documentation</a></div></div><a href="https://ignored.example/">non-result action</a><a class="title" href="javascript:alert(1)">Invalid</a></div><script>invented.example</script>"#;
+        let html = r#"<a class="result__a" href="https://navigation.example/">Navigation</a><div id="links"><div class="web-result"><h2 class="result__title"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdocs&amp;rut=opaque">Example Docs</a></h2></div><div class="web-result"><h2 class="result__title"><a class="result__a" href="https://example.com/deep">Deep documentation</a></h2></div><div class="web-result result--ad"><h2 class="result__title"><a class="result__a" href="https://advert.example/">Ad</a></h2></div></div>"#;
         let results = search_results(html);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0]["url"], "https://example.com/docs");
         assert_eq!(results[1]["url"], "https://example.com/deep");
         assert!(search_results("<html>Complete a challenge</html>").is_empty());
+    }
+    #[test]
+    fn search_redirects_reject_ambiguous_unsafe_or_noncanonical_targets() {
+        for link in [
+            "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com&amp;uddg=https%3A%2F%2Fother.example",
+            "https://duckduckgo.com/l/?uddg=javascript%3Aalert(1)",
+            "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fuser%3Apass%40example.com",
+            "https://duckduckgo.com:444/l/?uddg=https%3A%2F%2Fexample.com",
+            "https://duckduckgo.com/l/?uddg=",
+            "https://duckduckgo.com/settings",
+        ] {
+            let html = format!(
+                r#"<div id="links"><div class="web-result"><h2 class="result__title"><a class="result__a" href="{link}">invalid</a></h2></div></div>"#
+            );
+            assert!(search_results(&html).is_empty(), "{link}");
+        }
+    }
+    #[test]
+    fn search_results_deduplicate_unwrapped_targets_and_keep_thirty() {
+        let mut html = String::from("<div id='links'>");
+        for i in 0..40 {
+            for link in [
+                format!("https://example.com/{i}"),
+                format!("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F{i}"),
+            ] {
+                html.push_str(&format!("<div class='web-result'><h2 class='result__title'><a class='result__a' href='{link}'>item {i}</a></h2></div>"));
+            }
+        }
+        html.push_str("</div>");
+        let results = search_results(&html);
+        assert_eq!(results.len(), 30);
+        assert_eq!(results[29]["url"], "https://example.com/29");
     }
     #[test]
     fn production_contract_loads_from_static_package() {

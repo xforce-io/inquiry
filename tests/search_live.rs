@@ -99,7 +99,7 @@ async fn public_search_producer_returns_relevant_real_links() {
     for result in results.iter() {
         println!("{}", result);
         assert_eq!(result["result"]["status"], "discovered");
-        assert_eq!(result["result"]["provider"], "brave-html");
+        assert_eq!(result["result"]["provider"], "duckduckgo-html");
         assert!(!result["result"]["results"].as_array().unwrap().is_empty());
     }
     assert!(

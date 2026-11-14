@@ -78,7 +78,7 @@ fn entry(
         instruction: instruction.into(),
         executor: executor.into(),
         skills: if skill {
-            vec!["inquiry-deep-article@0.4.0".into()]
+            vec!["inquiry-deep-article@0.4.1".into()]
         } else {
             vec![]
         },
@@ -168,7 +168,7 @@ pub fn registry(
         )?;
     }
     r.register_skill_root(
-        "inquiry-deep-article@0.4.0",
+        "inquiry-deep-article@0.4.1",
         &root.join("skills/inquiry-deep-article"),
     )?;
     let planner = "Plan ONLY the supplied frozen Workflow template. The original goal, flow_input.scope and signal_facts are authoritative. If the object is ambiguous or a decisive clarification is missing, use a focused inquiry.search query to check its identity; submit PlannerResult kind=needs_input,input_schema_ref=article-clarification,reason explaining exactly what the user must clarify. Never substitute another similarly named object. Search transport failure alone does not mean the user must provide URLs; preserve it as a service limitation rather than inventing missing user input. When clear, copy task_input.template into a PlanProposal: protocol_version=1, goal_spec_digest/profile_digest from task_input, planning_mode=workflow and EXACT template_digest from task_input. For each template node select its sole capability as capability_ref, copy depends_on/inputs, copy outputs/checks. Do not include capabilities or fillable_inputs in a proposal node. Do not add a template_ref field to PlanProposal (it belongs to GoalPlanning only). No extra nodes or execution here. Submit PlannerResult {protocol_version:1,kind:proposal,proposal:...} to proposal through artifact.write. Do not request plan approval when the question is already clear.";

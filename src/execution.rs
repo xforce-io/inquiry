@@ -321,7 +321,7 @@ impl ExecutionSetup {
     pub async fn open(self, root: &Path, data: &Path) -> Result<(Arc<Runtime>, String)> {
         let bindings = crate::orchestration::bindings(
             self.executor,
-            format!("inquiry-article@0.4.0:{}", self.binding),
+            format!("inquiry-article@0.4.1:{}", self.binding),
         );
         let (registry, options) = crate::orchestration::registry(root, &bindings)?;
         let digest = registry.profile_digest(crate::orchestration::PROFILE)?;

@@ -222,7 +222,7 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
 }
 async fn health() -> Json<Value> {
     Json(
-        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":crate::TASKLOOP_REVISION,"method_version":crate::ARTICLE_METHOD_VERSION,"dns_mode":crate::net::dns_mode().ok()}),
+        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":crate::TASKLOOP_REVISION,"method_version":crate::ARTICLE_METHOD_VERSION,"search_provider":crate::search::PROVIDER,"dns_mode":crate::net::dns_mode().ok()}),
     )
 }
 async fn goal_snapshot(host: &Host, id: &str) -> Result<Option<GoalSnapshot>> {

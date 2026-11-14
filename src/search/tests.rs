@@ -23,7 +23,7 @@ impl Script {
         })
     }
 }
-const HTML: &[u8] = br#"<div class="snippet" data-type="web"><a class="title" href="https://example.com/source">Controlled source</a></div>"#;
+const HTML: &[u8] = br#"<div id="links"><div class="web-result"><h2 class="result__title"><a class="result__a" href="https://example.com/source">Controlled source</a></h2></div></div>"#;
 #[async_trait]
 impl Backend for Script {
     async fn fetch(
@@ -31,7 +31,7 @@ impl Backend for Script {
         url: &str,
         _: &ToolContext,
     ) -> std::result::Result<crate::net::Page, crate::net::FetchError> {
-        assert!(url.starts_with("https://search.brave.com/search?"));
+        assert!(url.starts_with("https://html.duckduckgo.com/html/?"));
         self.calls.fetch_add(1, Ordering::SeqCst);
         let response = self
             .responses

@@ -139,3 +139,6 @@ L1 reuse已确认v0.2；L2 write v0.7：依次修复无损归档、原有实际�
 
 
 本轮修复的确定性检查：63项Rust测试通过、0失败、6项显式ignored；5项前端引用解析测试通过，严格Clippy和前端构建通过。原文容量、既有候选补查、错误引用格式均保留修改前红与修改后绿记录，目录work/verify/7-storage-citation-recovery。此为冻结前开发检查，后续候选SHA上的验证另记，S1–S5不汇总通过。
+
+
+2026-11-14搜索替代how：e21baac生产采集器在原题query经两次60秒恢复后仍无来源；先前等价传输诊断HTTP429，证据work/verify/7-e21baac/network-after-approval.log与search-transport-diagnostic.json。src/search.rs::recover固定Brave URL和provider；src/domain.rs::search_results只识别Brave片段；原网络和采集器边界可复用。用户明确“先不用brave search”后，零模型、相同query、原公开IP/TLS/代理机制探测：DuckDuckGo HTML 200、10条实际结果（含Vertex overview/scenarios/用户操作官方页），Bing 200亦有结果；选择前者单一接入，不自动轮换或使用人工种子。原始页面及元数据在work/verify/7-search-alternative，不据此宣称研究质量。L1 reuse v0.2及本轮明确来源调整；L2 write v0.8；方法0.4.1新批登记，批准总46/12600秒、研究43/10800秒持续有效，累计模型入口仍25。

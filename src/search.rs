@@ -11,6 +11,8 @@ use std::{
 use taskloop::{DomainTool, Error, Result, ToolContext, ToolOutput, ToolSpec};
 use tokio::{sync::Mutex, time::Instant};
 
+pub const PROVIDER: &str = "duckduckgo-html";
+
 #[async_trait]
 trait Backend: Send + Sync {
     async fn fetch(
@@ -75,7 +77,7 @@ fn unavailable(
     ToolOutput::json(
         json!({"query":query,"results":[],"status":"unavailable","reason":reason,
         "retryable":retryable,"fetch_attempts":attempts,"retry_after_ms":wait.and_then(|n|u64::try_from(n).ok()),
-        "upstream_requests":null,"provider":"brave-html","searched_at":chrono::Utc::now().to_rfc3339()}),
+        "upstream_requests":null,"provider":PROVIDER,"searched_at":chrono::Utc::now().to_rfc3339()}),
     )
 }
 impl Search {
@@ -87,10 +89,8 @@ impl Search {
         started: &AtomicU32,
     ) -> ToolOutput {
         let mut cooldown = self.cooldown.lock().await;
-        let mut url = url::Url::parse("https://search.brave.com/search").expect("constant URL");
-        url.query_pairs_mut()
-            .append_pair("q", query)
-            .append_pair("source", "web");
+        let mut url = url::Url::parse("https://html.duckduckgo.com/html/").expect("constant URL");
+        url.query_pairs_mut().append_pair("q", query);
         for attempts in 0..3 {
             let wait = cooldown.saturating_sub(self.origin.elapsed().as_millis());
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -129,7 +129,7 @@ impl Search {
                     return ToolOutput::json(
                         json!({"query":query,"results":results,"status":"discovered",
                         "reason":"搜索发现不等于获取或内容核验","fetch_attempts":attempts+1,
-                        "retryable":false,"upstream_requests":null,"provider":"brave-html",
+                        "retryable":false,"upstream_requests":null,"provider":PROVIDER,
                         "search_url":page.final_url,"searched_at":chrono::Utc::now().to_rfc3339()}),
                     );
                 }

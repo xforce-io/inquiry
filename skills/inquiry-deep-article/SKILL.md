@@ -1,7 +1,7 @@
 ---
 name: inquiry-deep-article
 description: 以保存证据形成完整研究文章、独立评价与有界修订。
-version: 0.4.0
+version: 0.4.1
 ---
 
 # 深度文章方法
