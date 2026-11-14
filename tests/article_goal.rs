@@ -721,7 +721,6 @@ impl Executor for CollectorProbe {
 #[tokio::test]
 #[ignore = "External public-network acquisition through production Goal collector; zero models, not article quality"]
 async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_bytes() {
-    use base64::Engine;
     let fixture = HttpFixture::with_collection(Arc::new(CollectorProbe), true).await;
     let id = fixture.create("real-collection-probe").await;
     let view = tokio::time::timeout(Duration::from_secs(480), async {
@@ -785,9 +784,9 @@ async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_b
     let raw: Value = serde_json::from_slice(&data.bytes).unwrap();
     for source in value.sources.iter().filter(|s| s.fact["usable"] == true) {
         assert!(source.origin.starts_with("search:"));
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(raw[&source.source_id]["base64"].as_str().unwrap())
-            .unwrap();
+        let entry: article::ArchivedBody =
+            serde_json::from_value(raw[&source.source_id].clone()).unwrap();
+        let bytes = entry.restore().unwrap();
         assert_eq!(inquiry::domain::hash(&bytes), source.fact["body_sha256"]);
         assert_eq!(
             raw[&source.source_id]["body_sha256"],
@@ -961,6 +960,7 @@ impl Executor for RecoveryProbe {
 #[derive(Default)]
 struct RecoveryScript {
     delay_ms: u64,
+    supplement_unavailable: bool,
     searches: std::sync::atomic::AtomicUsize,
     fetches: std::sync::Mutex<Vec<(String, String)>>,
 }
@@ -979,6 +979,16 @@ impl DomainTool for RecoveryTool {
     }
     async fn call(&self, context: ToolContext, args: Value) -> Result<ToolOutput> {
         if self.id == "inquiry.search" {
+            if self.script.supplement_unavailable
+                && matches!(context.goal().map(|g| &g.role),Some(GoalRunRole::NodeMember {node_id,..}) if node_id=="supplement")
+            {
+                self.script
+                    .searches
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                return Ok(ToolOutput::json(
+                    json!({"query":"q","status":"unavailable","results":[],"retryable":false,"fetch_attempts":0,"upstream_requests":null,"reason":"Controlled search unavailable"}),
+                ));
+            }
             if self
                 .script
                 .searches
@@ -1107,4 +1117,118 @@ async fn public_goal_cancel_during_native_search_cooldown_stops_before_retry_or_
     fixture.runtime.shutdown().await.unwrap();
     assert_eq!(script.searches.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(script.fetches.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn supplement_uses_prior_actual_discovery_when_new_search_is_unavailable() {
+    let script = Arc::new(RecoveryScript {
+        supplement_unavailable: true,
+        ..Default::default()
+    });
+    let mut bindings =
+        orchestration::bindings(Arc::new(RecoveryProbe), "cached-retry-fixture".into());
+    for id in ["inquiry.search", "inquiry.article_fetch"] {
+        bindings = bindings.tool(Arc::new(RecoveryTool {
+            id,
+            script: script.clone(),
+        }));
+    }
+    let fixture = HttpFixture::with_bindings(bindings).await;
+    let id = fixture.create("cached-retry").await;
+    let view = fixture.wait(&id, "failed").await;
+    fixture.runtime.shutdown().await.unwrap();
+    let outputs = view["outputs"].as_array().unwrap();
+    let first = outputs
+        .iter()
+        .find(|o| o["stage"] == "collect" && o["artifact"]["slot"] == "corpus")
+        .unwrap();
+    let second = outputs
+        .iter()
+        .find(|o| o["stage"] == "supplement" && o["artifact"]["slot"] == "corpus")
+        .unwrap();
+    assert_eq!(
+        second["value"]["sources"].as_array().unwrap().len(),
+        1,
+        "previous actual discovery was lost when new search failed"
+    );
+    let source = &second["value"]["sources"][0];
+    assert_eq!(
+        source["fact"]["requested_url"],
+        "https://example.com/transient"
+    );
+    assert_eq!(source["fact"]["usable"], true);
+    assert_eq!(source["origin"], "search:q");
+    assert_eq!(
+        source["fact"]["retry_of"],
+        json!({"artifact_id":first["artifact"]["id"],"sha256":first["artifact"]["sha256"],"source_id":"r1s1"})
+    );
+    assert_eq!(first["value"]["sources"][0]["fact"]["usable"], false);
+    assert_eq!(second["value"]["searches"][0]["status"], "unavailable");
+}
+
+struct NumericReportProbe(Arc<std::sync::Mutex<Vec<bool>>>);
+#[async_trait]
+impl Executor for NumericReportProbe {
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        if !matches!(tools.goal_context().unwrap().role,GoalRunRole::NodeMember{node_id,..} if node_id=="draft")
+        {
+            return Agent {
+                final_verdict: "pass",
+            }
+            .execute(inv, tools, cancel)
+            .await;
+        }
+        let analysis = inv
+            .artifacts
+            .iter()
+            .find(|a| a.slot == "analysis" && a.state_id.contains("synthesize"))
+            .unwrap();
+        let response = tools
+            .call("artifact.read", json!({"id":analysis.id}))
+            .await
+            .unwrap();
+        let value: Value = serde_json::from_str(response["text"].as_str().unwrap()).unwrap();
+        let mut citation = value["evidence"][0].clone();
+        citation.as_object_mut().unwrap().remove("id");
+        let bad = json!({"answer_status":"answered","conclusion":"Saved material [E01].","citations":[citation],"limitations":[]});
+        let rejected = tools
+            .call("artifact.write", json!({"slot":"report","value":bad}))
+            .await
+            .is_err();
+        let partial=tools.call("artifact.write",json!({"slot":"report","value":{"answer_status":"insufficient_evidence","conclusion":"No evidence yet.","citations":[],"limitations":["Controlled fixture"]}})).await.is_ok();
+        let mut corrected = bad;
+        corrected["conclusion"] = json!("Saved material [1].");
+        let good = tools
+            .call("artifact.write", json!({"slot":"report","value":corrected}))
+            .await
+            .is_ok();
+        *self.0.lock().unwrap() = vec![rejected, partial, good];
+        ExecutionOutcome::Completed {
+            usage: json!({"model":false,"controlled_fixture":true}),
+        }
+    }
+}
+#[tokio::test]
+async fn report_submission_requires_numeric_markers_and_allows_in_run_correction() {
+    let results = Arc::new(std::sync::Mutex::new(vec![]));
+    let fixture = HttpFixture::new(Arc::new(NumericReportProbe(results.clone()))).await;
+    let id = fixture.create("numeric-report-contract").await;
+    fixture.wait(&id, "completed").await;
+    fixture.runtime.shutdown().await.unwrap();
+    assert_eq!(
+        *results.lock().unwrap(),
+        vec![true, true, true],
+        "opaque-only markers must fail before candidate acceptance, empty-source partial and corrected numeric report remain admissible"
+    );
 }

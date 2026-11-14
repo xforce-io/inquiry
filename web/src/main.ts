@@ -1,8 +1,8 @@
 import './style.css';
+import { buildCitationAliases, resolveCitationIndex, type Citation, type Evidence } from './citationRefs';
 
 type Ref={id:string;sha256:string;slot:string;state_id:string;visit:number};
 type Snapshot={execution_id:string;inputs:{question:string;scope:string;seed_urls:string[]};status:string;current_state:string;visit:number;revision:number;business_outcome:string|null;progress:{phase?:string};accepted_artifacts:Ref[];error:{code:string;message:string;path?:string}|null};
-type Citation={artifact_id:string;sha256:string;source_id?:string;paragraph:number;quote:string};
 type Fact={source_id:string;requested_url:string;final_url:string|null;captured_at:string;fetch_status:string;http_status:number|null;reason:string;title:string;body_sha256:string|null;usable:boolean;snapshot_slot:string|null;truncated:boolean};
 type Material={source_id:string;fact:Fact};
 type Report={answer_status:string;conclusion:string;citations:Citation[];limitations:string[]};
@@ -56,11 +56,29 @@ function researchError(error:NonNullable<Snapshot['error']>){
  if(/[\u3400-\u9fff]/.test(error.message))return error.message;
  return '本阶段执行或检查未能完成，已有成果仍保留。请核对原因后再决定是否新建研究。';
 }
-function inline(parent:HTMLElement,text:string,citations:Citation[],id:string){const pattern=/(\*\*[^*]+\*\*|`[^`]+`|\[\d+\])/g;let start=0;for(const match of text.matchAll(pattern)){parent.append(document.createTextNode(text.slice(start,match.index)));const value=match[0];if(value.startsWith('[')){const index=Number(value.slice(1,-1))-1;const citation=citations[index];if(citation){const b=button(String(index+1),'cite',()=>void showSource(id,citation.artifact_id,citation));b.setAttribute('aria-label',`查看来源${index+1}`);parent.append(b);}else parent.append(document.createTextNode(value));}else parent.append(element(value.startsWith('**')?'strong':'code','',value.slice(value.startsWith('**')?2:1,value.startsWith('**')?-2:-1)));start=(match.index||0)+value.length;}parent.append(document.createTextNode(text.slice(start)));}
-function markdown(parent:HTMLElement,text:string,citations:Citation[],id:string){const lines=text.split('\n');let i=0;while(i<lines.length){const line=lines[i].trim();if(!line){i++;continue;}if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3}/.test(lines[i+1])){const table=element('table');const wrap=element('div','table-wrap');const cells=(s:string)=>s.trim().replace(/^\||\|$/g,'').split('|').map(s=>s.trim());const header=element('tr');for(const cell of cells(line)){const th=element('th');inline(th,cell,citations,id);header.append(th);}table.append(header);i+=2;while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){const row=element('tr');for(const cell of cells(lines[i])){const td=element('td');inline(td,cell,citations,id);row.append(td);}table.append(row);i++;}wrap.append(table);parent.append(wrap);continue;}
- const heading=line.match(/^(#{1,4})\s+(.+)/);if(heading){const h=element(heading[1].length<=2?'h2':'h3');inline(h,heading[2],citations,id);parent.append(h);i++;continue;}
- if(/^[-*]\s+/.test(line)){const ul=element('ul');while(i<lines.length&&/^[-*]\s+/.test(lines[i].trim())){const li=element('li');inline(li,lines[i].trim().replace(/^[-*]\s+/,''),citations,id);ul.append(li);i++;}parent.append(ul);continue;}
- const paragraph=element('p');const chunk=[line];i++;while(i<lines.length&&lines[i].trim()&&!/^(#{1,4}\s|[-*]\s)/.test(lines[i].trim())&&!lines[i].includes('|')){chunk.push(lines[i].trim());i++;}inline(paragraph,chunk.join(' '),citations,id);parent.append(paragraph);
+function inline(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
+ const pattern=/(\*\*[^*]+\*\*|`[^`]+`|\[[A-Za-z0-9_-]+\])/g;
+ let start=0;
+ for(const match of text.matchAll(pattern)){
+  parent.append(document.createTextNode(text.slice(start,match.index)));
+  const value=match[0];
+  if(value.startsWith('[')){
+   const index=resolveCitationIndex(value.slice(1,-1),citations.length,aliases);
+   if(index!==undefined){
+    const citation=citations[index];
+    const b=button(value.slice(1,-1),'cite',()=>void showSource(id,citation.artifact_id,citation));
+    b.setAttribute('aria-label',`查看来源${index+1}`);
+    parent.append(b);
+   }else{parent.append(document.createTextNode(value));}
+  }else{parent.append(element(value.startsWith('**')?'strong':'code','',value.slice(value.startsWith('**')?2:1,value.startsWith('**')?-2:-1)));}
+  start=(match.index||0)+value.length;
+ }
+ parent.append(document.createTextNode(text.slice(start)));
+}
+function markdown(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){const lines=text.split('\n');let i=0;while(i<lines.length){const line=lines[i].trim();if(!line){i++;continue;}if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3}/.test(lines[i+1])){const table=element('table');const wrap=element('div','table-wrap');const cells=(s:string)=>s.trim().replace(/^\||\|$/g,'').split('|').map(s=>s.trim());const header=element('tr');for(const cell of cells(line)){const th=element('th');inline(th,cell,citations,id,aliases);header.append(th);}table.append(header);i+=2;while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){const row=element('tr');for(const cell of cells(lines[i])){const td=element('td');inline(td,cell,citations,id,aliases);row.append(td);}table.append(row);i++;}wrap.append(table);parent.append(wrap);continue;}
+ const heading=line.match(/^(#{1,4})\s+(.+)/);if(heading){const h=element(heading[1].length<=2?'h2':'h3');inline(h,heading[2],citations,id,aliases);parent.append(h);i++;continue;}
+ if(/^[-*]\s+/.test(line)){const ul=element('ul');while(i<lines.length&&/^[-*]\s+/.test(lines[i].trim())){const li=element('li');inline(li,lines[i].trim().replace(/^[-*]\s+/,''),citations,id,aliases);ul.append(li);i++;}parent.append(ul);continue;}
+ const paragraph=element('p');const chunk=[line];i++;while(i<lines.length&&lines[i].trim()&&!/^(#{1,4}\s|[-*]\s)/.test(lines[i].trim())&&!lines[i].includes('|')){chunk.push(lines[i].trim());i++;}inline(paragraph,chunk.join(' '),citations,id,aliases);parent.append(paragraph);
  }}
 function detail(data:View,id:string){if(data.engine==='goal'&&data.goal){goalDetail(data,id);return;}const main=shell();main.className='detail-page';const s=data.snapshot;main.append(link('← 新研究','/','back-link'));const heading=element('section','research-heading');heading.append(element('p','eyebrow','研究问题'),element('h1','',titleOf(s.inputs.question)));const full=element('details','question-full');full.append(element('summary','','查看完整问题与范围'),element('pre','',s.inputs.question+'\n\n研究范围：'+s.inputs.scope));heading.append(full);main.append(heading);
  const status=element('section','status-card '+s.status);const row=element('div','status-row');const label=element('div','status-label');if(!terminal.has(s.status)&&s.status!=='blocked')label.append(element('span','pulse'));label.append(element('strong','',stateText(s)));row.append(label);
@@ -109,7 +127,9 @@ function goalDetail(data:View,id:string){
    const evaluations=(data.evaluations||[]).filter(e=>Object.values(e.subject.targets||{}).some(t=>t.artifact_id===output.artifact.id&&t.sha256===output.artifact.sha256));
    const finals=evaluations.filter(e=>e.phase==='goal_final');const achieved=selected==='revise'&&goal.outcome==='achieved'&&finals.length===2&&finals.every(e=>e.verdict==='pass');
    card.append(element('p','eyebrow',selected==='draft'?'初稿 · 不代表最终达标':achieved?'最终文章 · 已达标':goal.outcome==='not_met'?'最终文章 · 未达标':'最终文章 · 评价待核对'));
-   const body=element('article','report-body');markdown(body,report.conclusion,report.citations,id);card.append(body);
+   const analysis=data.outputs.find(o=>o.stage==='synthesize'&&o.artifact.slot==='analysis')?.value as {evidence:Evidence[]}|undefined;
+   const aliases=buildCitationAliases(report.citations,analysis?.evidence||[]);
+   const body=element('article','report-body');markdown(body,report.conclusion,report.citations,id,aliases);card.append(body);
    if(report.limitations.length){const limits=element('section','limitations');limits.append(element('h3','','限制与未决事项'));for(const l of report.limitations)limits.append(element('p','',l));card.append(limits);}
    const quality=element('section','quality-results');quality.append(element('h2','','该版本的质量评价'));
    if(checkFailed&&selected==='revise')notice(quality,'最终质量检查未完成，当前文章保留可读，不能判为已达标。');

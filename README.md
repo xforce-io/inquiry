@@ -36,12 +36,13 @@ INQUIRY_EXECUTION_CONFIG=/absolute/path/execution.json cargo run --locked
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+npm test --prefix web
 npm run build --prefix web
 ```
 
 确定性测试不是实际模型研究。研究集成分支 `feat/2-research-web-mvp` 已有真实六阶段报告、引用回溯、停止/隔离与 Web 驾驶证据，迁移 PR #4 和搜索恢复 PR #6 均已合入该分支；应用尚未进入 main。两轮质量对照均为 FAIL，第三轮为 BLOCKED，不宣称已优于直接生成。各证据仅支持其绑定候选及记录范围，不能当作当前 #7 新质量闭环已验收。
 
-`feat/7-deep-article-quality-loop` 承接已集成实现；产品基线已于2026-11-13由用户确认，[设计 v0.2](docs/design/7-deep-article-quality-loop.md)及新闭环已实现待验收。当前确定性检查不能证明深度文章质量；正式生成前必须冻结输入、模型、规则、预算与匿名映射，旧实验不改写。
+`feat/7-deep-article-quality-loop` 承接已集成实现；产品基线已于2026-11-13由用户确认，[设计（产品基线v0.2、技术契约v0.7）](docs/design/7-deep-article-quality-loop.md)及新闭环已实现待验收。当前确定性检查不能证明深度文章质量；正式生成前必须冻结输入、模型、规则、预算与匿名映射，旧实验不改写。
 
 - [实现与验收 Issue #2](https://github.com/xforce-io/inquiry/issues/2)
 - [唯一实现 L2 与实验协议](docs/design/2-research-web-mvp.md)
@@ -63,3 +64,6 @@ npm run build --prefix web
 真实Vertex报告/引用与浏览器迁移验收仍未完成；两次旧Vertex失败和#2质量实验FAIL保持，不启动第三轮SOTA实验。详细规格见[迁移设计](docs/design/3-milkie-trace-research-migration.md)，验收地图见[执行与Trace](.agents/skills/verify-inquiry/features/execution.md)。
 
 方法0.3.7的来源发现显式读取授权的历史缺口、候选查询和资料索引，首次无历史也可运行。搜索工具每次最多3次获取尝试、总等待30秒，遵守Retry-After并共享冷却；持续不可用显示专门等待，60秒后自动继续，仍共享原每状态3次访问上限。页面可停止，耗尽后保留资料并明确服务不可用；真正缺少用户资料沿用补来源入口。查询记录由实际搜索回执核对，旧实例和质量实验结果不改写。
+
+
+2026-11-14：固定Sol/high的0826faf重试已跑完8个工作节点，最终为`not_met`，未证明深度文章达标；初稿独立评价Q1/Q2/Q5/Q6失败，最终原生检查拒绝决定性缺口，最终语义评价未调用。累计25个模型入口（研究23、代码审查2），后续对照未启动。已据真实记录修复原文档案容量利用、原有发现候选补查及引用提交/回溯；修复候选仍须冻结复验，不能据确定性测试宣称研究质量提高。详见[完整进展与失败依据](docs/plan/7-deep-article-quality-loop.md)。

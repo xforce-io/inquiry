@@ -16,7 +16,7 @@ Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置�
 ## Doctor
 
 1. 工作树干净，记录候选完整SHA、Cargo.lock摘要与 TaskLoop rev；正式候选构建后不可改方法包/资源。
-2. `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、前端 build 通过。确定性测试中的 synthetic 数据不能当模型/产品成果。
+2. `cargo fmt --check`、`cargo clippy --locked --all-targets -- -D warnings`、`cargo test --locked`、`npm test --prefix web`、前端 build 通过。确定性测试中的 synthetic 数据不能当模型/产品成果。
 3. `/api/health` 的 build 必须等于候选，浏览器 `document.documentElement.dataset.build` 相同。只做读取确认，不用脚本直接创建以冒充界面操作。
 4. 私有目录保留TaskLoop业务/Trace store、Milkie数据和原生会话位置（以显式session_dir为准，只操作本次Trace绑定的会话）；旧research-audit.ndjson原样保留，新链路不再另写原始工具日志。记录Milkie CLI摘要、三个仓库SHA、实际模型/推理配置、耗时和可得用量，未知不补零。
 5. **首次真实研究前**按适用Issue封存输入和运行边界。#2质量实验仍按其L2 §11.2–11.7登记共同提示词、UTC时间、摘要、匿名随机映射和评分协议；#3同题迁移功能复验只封存原Vertex输入、候选/依赖和两次旧失败索引，不启动第三轮SOTA质量实验。没有相应登记不得生成报告。#7采用docs/experiments/7-quality-protocol-draft.md及其运行前登记：复杂Palantir Vertex原题、Q1–Q6全通过、一次修订、独立隔离效果评价、直接生成和同资料一次生成对照；不能复用#2旧分数作本票证明。

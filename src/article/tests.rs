@@ -172,3 +172,22 @@ async fn oversized_provider_delay_is_preserved_without_early_retry() {
     assert_eq!(out, vec![original]);
     assert_eq!(fixture.calls.lock().unwrap().len(), 1);
 }
+
+#[test]
+fn twenty_saved_html_bodies_fit_archive_without_discarding_raw_bytes() {
+    let html = format!(
+        "<script>{}</script><main>actual source text</main>",
+        "navigation ".repeat(42_000)
+    );
+    let archive = (1..=20)
+        .map(|i| (format!("r1s{i}"), archive_body(html.as_bytes()).unwrap()))
+        .collect::<BTreeMap<_, _>>();
+    for value in archive.values() {
+        let body: ArchivedBody = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(body.restore().unwrap(), html.as_bytes());
+    }
+    assert!(
+        serde_json::to_vec(&archive).unwrap().len() <= ARCHIVE_BYTES,
+        "twenty compressible source bodies exceed the unchanged archive boundary"
+    );
+}

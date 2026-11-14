@@ -65,5 +65,21 @@
     "citations",
     "limitations"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "properties": {
+        "citations": {
+          "maxItems": 0
+        }
+      }
+    },
+    {
+      "properties": {
+        "conclusion": {
+          "pattern": "\\[[1-9][0-9]*\\]"
+        }
+      }
+    }
+  ]
 }

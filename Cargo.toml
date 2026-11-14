@@ -9,6 +9,7 @@ publish = false
 taskloop = { git = "https://github.com/xforce-io/taskloop.git", rev = "daf0fbaae905be555b543063a4e0d477ea522be8" }
 async-trait = "0.1"
 base64 = "0.22"
+flate2 = "1.1"
 axum = "0.8"
 chrono = "0.4"
 scraper = "0.24"

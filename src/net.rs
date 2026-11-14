@@ -12,7 +12,7 @@ use url::Url;
 
 type HttpResponse = (u16, BTreeMap<String, String>, Vec<u8>);
 
-const BODY_LIMIT: usize = 1024 * 1024;
+pub(crate) const BODY_LIMIT: usize = 1024 * 1024;
 const TOTAL_LIMIT: usize = BODY_LIMIT + 64 * 1024;
 #[derive(Debug, Clone)]
 pub struct Page {

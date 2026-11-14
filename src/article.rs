@@ -1,6 +1,7 @@
 //! Deep-article evidence contracts. Scheduling and result authority remain in TaskLoop.
 use async_trait::async_trait;
-use base64::{Engine, engine::general_purpose::STANDARD};
+mod archive;
+pub use archive::ArchivedBody;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -334,6 +335,8 @@ async fn collect(
 ) -> Result<Value> {
     let mut queries = Vec::new();
     let mut excluded = BTreeSet::new();
+    let mut retries = Vec::new();
+    let mut prior_sources = BTreeMap::new();
     for reference in &inv.artifacts {
         if !matches!(reference.slot.as_str(), "plan" | "analysis" | "corpus") {
             continue;
@@ -366,10 +369,13 @@ async fn collect(
         }
         if a.reference.slot == "corpus" {
             for s in corpus(&a)?.sources {
-                if exclude_source(&s.fact)
-                    && let Some(url) = s.fact["requested_url"].as_str()
-                {
-                    excluded.insert(url.to_owned());
+                if let Some(url) = s.fact["requested_url"].as_str() {
+                    if exclude_source(&s.fact) {
+                        excluded.insert(url.to_owned());
+                    } else {
+                        retries.push((url.to_owned(), s.origin));
+                        prior_sources.insert(url.to_owned(),json!({"artifact_id":a.reference.id,"sha256":a.reference.sha256,"source_id":s.source_id}));
+                    }
                 }
             }
         }
@@ -397,7 +403,14 @@ async fn collect(
         limitations: vec![],
     };
     output.searches = collect_searches(queries, tools, cancel).await?;
-    let selected = candidates(&seeds, &output.searches, &excluded);
+    let mut selected = candidates(&seeds, &output.searches, &excluded);
+    let mut seen = excluded;
+    seen.extend(selected.iter().map(|(url, _)| url.clone()));
+    for (url, origin) in retries {
+        if selected.len() < 20 && seen.insert(url.clone()) {
+            selected.push((url, origin));
+        }
+    }
     let mut archive = BTreeMap::<String, Value>::new();
     for (index, (url, origin)) in selected.into_iter().enumerate() {
         let id = format!("r{round}s{}", index + 1);
@@ -406,6 +419,9 @@ async fn collect(
             .await?;
         let acquired = &response["result"];
         let mut fact = acquired["fact"].clone();
+        if let Some(previous) = prior_sources.get(&url) {
+            fact["retry_of"] = previous.clone();
+        }
         let mut paragraphs: Vec<String> = serde_json::from_value(acquired["paragraphs"].clone())?;
         if !acquired["raw"].is_null() {
             archive.insert(id.clone(), acquired["raw"].clone());
@@ -445,6 +461,9 @@ async fn collect(
         return Err(fault("资料包处置记录超过容量边界"));
     }
     Ok(json!({"corpus":output,"archive":archive}))
+}
+fn archive_body(bytes: &[u8]) -> Result<Value> {
+    Ok(serde_json::to_value(ArchivedBody::capture(bytes)?)?)
 }
 pub struct FetchSource;
 #[async_trait]
@@ -486,7 +505,8 @@ impl DomainTool for FetchSource {
             .files
             .iter()
             .find(|f| f.slot.starts_with("capture.raw."))
-            .map(|f| json!({"body_sha256":f.sha256(),"base64":STANDARD.encode(&f.bytes)}));
+            .map(|f| archive_body(&f.bytes))
+            .transpose()?;
         Ok(ToolOutput::json(
             json!({"fact":fact,"paragraphs":paragraphs,"raw":raw}),
         ))
