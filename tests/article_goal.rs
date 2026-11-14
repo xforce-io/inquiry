@@ -1343,6 +1343,13 @@ async fn native_discovery_uses_round_receipts_and_fetches_without_http_search_fa
         0,
         "HTTP search must never be called"
     );
+    let runs = view["goal"]["runs"].as_object().unwrap();
+    let scope = runs
+        .values()
+        .find(|r| r["entry_ref"] == "article-scope@1")
+        .unwrap();
+    assert_eq!(scope["budget"]["policy"]["max_run_ms"], 300000);
+    assert_eq!(view["goal"]["limits"]["max_wall_ms"], 1800000);
     let outputs = view["outputs"].as_array().unwrap();
     for (stage, run) in [
         ("collect", "fixture-scope"),

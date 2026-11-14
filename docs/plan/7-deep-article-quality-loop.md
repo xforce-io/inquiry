@@ -153,3 +153,10 @@ Inquiry技术v0.9/方法0.4.2：显式native_search选择独立discovery/planner
 
 
 真实回执预检第一次在获取后保存档案处失败：archive.json仍只允许body_sha256/base64，与既有gzip原文输出的encoding/body_bytes不一致；错误明确为additionalProperties。原失败日志保留，不改成搜索失败。已补齐现有压缩档案契约（gzip必须有长度、单页1MiB），并将双轮恢复夹具改为真实gzip字段，确保公开Goal提交路径覆盖这条边界。不得通过删字段或放宽additionalProperties掩盖不一致。
+
+
+## 8114bd7原题首试失败与有限时限修订
+
+ego-browser真实填写点击创建Goal `goal-d4fae292-47cc-42bb-ab0d-9bd41db35f56`；原题/匿名映射摘要保持，DOM/HTTP核对候选。Planner151.719秒成功；scope180.299秒取消，均stopped。scope回执有2个completed搜索动作、8查询、58结果，complete=false，未形成接纳plan/discoveries/文章。仅在终态用Milkie公开SDK诊断本适配器归属记录对应的回执；生产仍只用TaskLoop公开查询，不接入私有路径。UI显示“研究未完成/文章尚未形成”，已关闭本任务浏览器并SIGTERM宿主，不自动重跑/执行对照。
+
+证据：work/verify/7-8114bd7/real-native-20261115内registration/ready/health/filled/activation/created/final-view/final-trace/final-budgets/receipt-summary/cumulative-after-attempt.json及final-visible.txt。累计28入口/6504.508秒已测执行（含记账零模型检查；未测编译不补零）；完整重启还需20入口，预计48，比旧46多2。技术v0.10/方法0.4.3候选只将原生scope180→300秒，总1800秒不变；先零模型验证，不预写真实修复PASS、不启动新模型。

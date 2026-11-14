@@ -6,7 +6,7 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `2eb8d9aaaf0daa1efff8feabf06f6e9c874e8e3e`，Milkie #283候选，尚未合入；未发布包）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `6a2483aa101d7f73f49f842d44db19286a9d01bc`，通过公开 Goal/DAG 接口运行方法 0.4.2；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `2eb8d9aaaf0daa1efff8feabf06f6e9c874e8e3e`，Milkie #283候选，尚未合入；未发布包）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `6a2483aa101d7f73f49f842d44db19286a9d01bc`，通过公开 Goal/DAG 接口运行方法 0.4.3；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
 
 宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，基础字段必填；codex_binary和reuse_native_login为显式可选项。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`须提前准备且不与框架存储重叠；默认使用互不包含的专用目录，显式复用登录的例外见下文。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
 
@@ -24,7 +24,7 @@ INQUIRY_EXECUTION_CONFIG=/absolute/path/execution.json cargo run --locked
 
 公开 HTTP(S) 获取每页正文上限1MiB、最多5次重定向，逐跳检查DNS并固定目标IP，拒绝内网、凭据URL和非80/443端口；一期不支持PDF/OCR或登录网页。规范化节选会标记截断。网络实现依据 [curl connect-to](https://curl.se/docs/manpage.html#--connect-to) 与 [IANA 特殊地址注册表](https://www.iana.org/assignments/iana-ipv4-special-registry/)。网页是非可信文本，不能向Agent授予额外工具或权限。系统DNS不可用时，宿主可显式设置 `INQUIRY_DNS_MODE=cloudflare-doh` 使用固定Cloudflare HTTPS解析；默认system。此模式仍校验全部A/AAAA地址并固定目标IP，失败不换解析器，`/api/health`显示所选模式。详见[设计中的网络边界](docs/design/7-deep-article-quality-loop.md#8-apicli)。
 
-方法0.4.2固定为范围、资料获取、分析、有界补查、综合、初稿、独立评价、一次修订及最终评价，无回边。每轮最多8条查询和20个实际来源候选，保存正文和原文档案分别有容量上限。作者通过授权工具分段读取资料，评价者读取独立 CheckInput 和保存证据；引用核对与 Q1–Q6 语义评价分别运行。只有针对确切最终稿的两项必需评价全部通过才达标。
+方法0.4.3固定为范围、资料获取、分析、有界补查、综合、初稿、独立评价、一次修订及最终评价，无回边。每轮最多8条查询和20个实际来源候选，保存正文和原文档案分别有容量上限。作者通过授权工具分段读取资料，评价者读取独立 CheckInput 和保存证据；引用核对与 Q1–Q6 语义评价分别运行。只有针对确切最终稿的两项必需评价全部通过才达标。
 
 总墙钟/活动时长上限30分钟、16 Run、300次 TaskLoop 工具调用，单项入口另有时间/调用限制，保留最后2次提交。原生采集在一个Run内逐次调用搜索和单页获取工具；搜索恢复、DNS和重定向可能产生多个网络请求，另外保留获取事实，不把工具调用数混为网络请求数。边界耗尽不保证文章成功。旧方法0.3.7资源保持原样，用于历史记录解释。
 
@@ -72,3 +72,6 @@ npm run build --prefix web
 
 
 2026-11-15原生搜索候选：执行配置显式`native_search: true`后，Planner、范围规划及初次分析通过Milkie授权Codex原生live搜索；综合、写作和评价不启用搜索。候选来源以宿主验证的原生回执为准，正文独立抓取保存；没有DuckDuckGo/Brave自动回退。省略或false保留既有HTTP模式。`/api/health.search_provider`显示实际装配。原生搜索服务已真实取得结果，但Inquiry新原题文章和效果评价尚未验证通过。
+
+
+8114bd7原题首试保留FAIL：scope已完成8条查询/58条结果，但在180秒阶段时限前未提交计划，原生停止确认、没有文章。方法0.4.3候选只将原生scope设为300秒，整体仍30分钟；尚未经新模型验证。完整后续批次预计使总46入口达到48，未获具体扩额前不启动新模型。

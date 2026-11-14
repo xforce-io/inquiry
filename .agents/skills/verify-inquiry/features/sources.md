@@ -27,3 +27,5 @@
 显式native_search=true后health.search_provider=codex-native；范围及初次分析产生宿主保留discoveries，首轮/补查仅使用各自真实原生回执，无HTTP搜索回退。模型写保留槽位须拒绝；不可用、不完整、错归属、超实际查询预算不可冒充已发现。单个原生搜索聚合多个query时保留全部实际查询，用run/item归属而不伪造逐URL对应；未知上游请求数不填零。搜索片段不得进入保存正文或引用。
 
 确定性Integration：`cargo test --locked --test article_goal native_discovery`验证两轮归属、零HTTP搜索及独立Fetch和既有来源重取；`cargo test --locked article::discovery`验证保留槽位、片段剔除及回执边界。实际公开抓取可显式指定INQUIRY_NATIVE_RECEIPT_FILE，运行原native_collection探针：该模式是既有真实回执的受控回放，零新增模型，不作为新自主研究；逐份原文字节与规范化SHA核对沿上文。新原题研究须另外真实创建及验收。
+
+技术v0.10/方法0.4.3：原生scope预算300秒，HTTP模式180秒，总Goal1800秒。受控native_discovery测试核对公开Run预算与Goal限额；这不证明文章达标。8114bd7旧180秒失败保留，新原题须重新登记且预算足够后再启动。

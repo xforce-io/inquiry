@@ -337,7 +337,7 @@ impl ExecutionSetup {
         }
     }
     pub async fn open(self, root: &Path, data: &Path) -> Result<(Arc<Runtime>, String)> {
-        let version = format!("inquiry-article@0.4.2:{}", self.binding);
+        let version = format!("inquiry-article@0.4.3:{}", self.binding);
         let bindings = if let Some(discovery) = self.discovery {
             crate::orchestration::native_bindings(
                 self.executor,
