@@ -205,3 +205,22 @@ fn shared_login_requires_explicit_binary_and_the_existing_native_sessions() {
     f.value["session_dir"] = json!(f.root.path().join("native-sessions"));
     assert_eq!(f.error().path, "/execution/storage");
 }
+
+#[tokio::test]
+async fn native_search_is_explicit_and_freezes_the_separate_discovery_binding_without_credentials()
+{
+    let mut f = ConfigFixture::new();
+    assert_eq!(f.load().unwrap().search_provider(), "duckduckgo-html");
+    f.value["native_search"] = json!(true);
+    let setup = f.load().unwrap();
+    assert_eq!(setup.search_provider(), "codex-native");
+    let (runtime, _) = setup
+        .open(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &f.root.path().join("data"),
+        )
+        .await
+        .unwrap();
+    runtime.shutdown().await.unwrap();
+    assert!(!f.root.path().join("native-config/auth.json").exists());
+}

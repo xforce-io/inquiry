@@ -119,6 +119,7 @@ impl Fixture {
             port: 3410,
             session: "synthetic-session".into(),
             web_dir: webdir,
+            search_provider: "duckduckgo-html",
         });
         Self {
             _root: root,
@@ -474,6 +475,7 @@ async fn new_goal_host_reads_persisted_legacy_flow_but_refuses_writes() {
         port: 3410,
         session: "synthetic-session".into(),
         web_dir: root.path().join("web"),
+        search_provider: "duckduckgo-html",
     });
     let upgraded = Fixture {
         _root: root,

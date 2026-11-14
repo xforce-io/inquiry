@@ -21,6 +21,7 @@ pub struct Host {
     pub port: u16,
     pub session: String,
     pub web_dir: PathBuf,
+    pub search_provider: &'static str,
 }
 pub fn router(host: Host) -> Router {
     let api = Router::new()
@@ -220,9 +221,9 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
         .await?;
     Ok(Json(json!({"id":id})))
 }
-async fn health() -> Json<Value> {
+async fn health(State(host): State<Host>) -> Json<Value> {
     Json(
-        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":crate::TASKLOOP_REVISION,"method_version":crate::ARTICLE_METHOD_VERSION,"search_provider":crate::search::PROVIDER,"dns_mode":crate::net::dns_mode().ok()}),
+        json!({"ready":true,"build":env!("INQUIRY_BUILD_SHA"),"taskloop_revision":crate::TASKLOOP_REVISION,"method_version":crate::ARTICLE_METHOD_VERSION,"search_provider":host.search_provider,"dns_mode":crate::net::dns_mode().ok()}),
     )
 }
 async fn goal_snapshot(host: &Host, id: &str) -> Result<Option<GoalSnapshot>> {

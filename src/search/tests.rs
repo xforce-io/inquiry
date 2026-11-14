@@ -393,6 +393,7 @@ async fn browser_recovery_host() {
         port,
         session: uuid::Uuid::new_v4().to_string(),
         web_dir: Path::new(env!("CARGO_MANIFEST_DIR")).join("web/dist"),
+        search_provider: crate::search::PROVIDER,
     });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await

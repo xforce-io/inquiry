@@ -19,6 +19,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     // Bind before opening the runtime: a port conflict must not resume queued research.
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
+    let search_provider = setup.search_provider();
     let (runtime, digest) = setup.open(&root, &data).await?;
     let app = inquiry::web::router(inquiry::web::Host {
         runtime: runtime.clone(),
@@ -26,6 +27,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         port,
         session: uuid::Uuid::new_v4().to_string(),
         web_dir: root.join("web/dist"),
+        search_provider,
     });
     println!(
         "Inquiry: http://127.0.0.1:{port} · build {}",

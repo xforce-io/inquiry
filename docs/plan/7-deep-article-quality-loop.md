@@ -142,3 +142,14 @@ L1 reuse已确认v0.2；L2 write v0.7：依次修复无损归档、原有实际�
 
 
 2026-11-14搜索替代how：e21baac生产采集器在原题query经两次60秒恢复后仍无来源；先前等价传输诊断HTTP429，证据work/verify/7-e21baac/network-after-approval.log与search-transport-diagnostic.json。src/search.rs::recover固定Brave URL和provider；src/domain.rs::search_results只识别Brave片段；原网络和采集器边界可复用。用户明确“先不用brave search”后，零模型、相同query、原公开IP/TLS/代理机制探测：DuckDuckGo HTML 200、10条实际结果（含Vertex overview/scenarios/用户操作官方页），Bing 200亦有结果；选择前者单一接入，不自动轮换或使用人工种子。原始页面及元数据在work/verify/7-search-alternative，不据此宣称研究质量。L1 reuse v0.2及本轮明确来源调整；L2 write v0.8；方法0.4.1新批登记，批准总46/12600秒、研究43/10800秒持续有效，累计模型入口仍25。
+
+## 原生搜索接入候选（2026-11-15）
+
+用户要求调整Milkie以避开搜索服务阻塞。Milkie #283真实原生搜索成功（23条结构化结果，累计模型入口26，不新增额度）；TaskLoop #23提供显式模式和按原运行归属读取回执。发现TaskLoop执行结束通知可能先于监督器析构，已在#23读取入口等待已完成运行收尾，避免同适配器立即读取误报source_busy；同适配器及重开路径均有定向测试。
+
+Inquiry技术v0.9/方法0.4.2：显式native_search选择独立discovery/planner绑定；scope与initial-analysis沿原模型入口生成受信discoveries，collect/supplement各自接收该轮产物，不增加模型入口。wrapper隐藏保留输出并在ToolBridge拒绝模型写入，传递原观测、预算、候选上限和停止，真实native回执由TaskLoop公开接口读取；宿主最后提交投影。综合、写作、评价继续搜索关闭。片段不进来源材料，实际聚合查询以run/item归属，正文复用独立Fetch/无损归档/引用链。
+
+开发零模型检查：Clippy通过；受控完整双轮Goal通过、HTTP搜索调用为0、各轮只消费相应回执、原临时失败网址可重取；显式配置可冻结原生图，无认证文件读取。初次fixture缺enforces_json_candidate_limit导致拒绝，已明确标记其纯受信受控候选并保留失败记录。真实回执回放抓取预检是既有搜索结果的受控回放，不冒充新自主研究；结果与完整回归另见work/verify/7-native-search-development。新的原题完整研究、语义负例及固定对照尚未启动，本文不预写pass。
+
+
+真实回执预检第一次在获取后保存档案处失败：archive.json仍只允许body_sha256/base64，与既有gzip原文输出的encoding/body_bytes不一致；错误明确为additionalProperties。原失败日志保留，不改成搜索失败。已补齐现有压缩档案契约（gzip必须有长度、单页1MiB），并将双轮恢复夹具改为真实gzip字段，确保公开Goal提交路径覆盖这条边界。不得通过删字段或放宽additionalProperties掩盖不一致。

@@ -19,6 +19,8 @@ struct ExecutionConfig {
     codex_binary: Option<PathBuf>,
     #[serde(default)]
     reuse_native_login: bool,
+    #[serde(default)]
+    native_search: bool,
     trace: TraceConfig,
 }
 #[derive(Deserialize)]
@@ -157,6 +159,7 @@ fn install_codex_launcher(_: &Path, _: &Path) -> Result<(PathBuf, Vec<u8>)> {
 /// A validated assembly. Only the native adapter reads auth.json.
 pub struct ExecutionSetup {
     executor: Arc<MilkieExecutor>,
+    discovery: Option<Arc<MilkieExecutor>>,
     trace: TraceOptions,
     policy: TracePolicy,
     binding: String,
@@ -296,8 +299,16 @@ impl ExecutionSetup {
         };
         // Source settings and generated policy are host facts, never Agent-provided arguments.
         let binding = crate::domain::hash(&[bytes, native, conn_bytes, launcher].concat());
+        let discovery = if config.native_search {
+            Some(Arc::new(MilkieExecutor::new(
+                milkie.clone().web_search(MilkieWebSearchMode::Live),
+            )?))
+        } else {
+            None
+        };
         Ok(Self {
             executor: Arc::new(MilkieExecutor::new(milkie)?),
+            discovery,
             trace: TraceOptions {
                 max_events_per_run: config.trace.max_events_per_run,
                 max_bytes_per_run: config.trace.max_bytes_per_run,
@@ -318,11 +329,27 @@ impl ExecutionSetup {
             binding,
         })
     }
+    pub fn search_provider(&self) -> &'static str {
+        if self.discovery.is_some() {
+            "codex-native"
+        } else {
+            crate::search::PROVIDER
+        }
+    }
     pub async fn open(self, root: &Path, data: &Path) -> Result<(Arc<Runtime>, String)> {
-        let bindings = crate::orchestration::bindings(
-            self.executor,
-            format!("inquiry-article@0.4.1:{}", self.binding),
-        );
+        let version = format!("inquiry-article@0.4.2:{}", self.binding);
+        let bindings = if let Some(discovery) = self.discovery {
+            crate::orchestration::native_bindings(
+                self.executor,
+                Arc::new(crate::article::discovery::DiscoveryExecutor(
+                    discovery.clone(),
+                )),
+                discovery,
+                version,
+            )
+        } else {
+            crate::orchestration::bindings(self.executor, version)
+        };
         let (registry, options) = crate::orchestration::registry(root, &bindings)?;
         let digest = registry.profile_digest(crate::orchestration::PROFILE)?;
         let runtime = Runtime::open_orchestrated(

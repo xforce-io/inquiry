@@ -1,6 +1,7 @@
 //! Deep-article evidence contracts. Scheduling and result authority remain in TaskLoop.
 use async_trait::async_trait;
 mod archive;
+pub mod discovery;
 pub use archive::ArchivedBody;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -232,7 +233,12 @@ fn candidates(
             {
                 add(
                     url,
-                    format!("search:{}", search["query"].as_str().unwrap_or("")),
+                    search["origin"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            format!("search:{}", search["query"].as_str().unwrap_or(""))
+                        }),
                 );
             }
         }
@@ -332,13 +338,18 @@ async fn collect(
     tools: &Arc<dyn ToolBridge>,
     round: u8,
     cancel: &CancellationToken,
+    native_search: bool,
 ) -> Result<Value> {
+    let mut discoveries = None;
     let mut queries = Vec::new();
     let mut excluded = BTreeSet::new();
     let mut retries = Vec::new();
     let mut prior_sources = BTreeMap::new();
     for reference in &inv.artifacts {
-        if !matches!(reference.slot.as_str(), "plan" | "analysis" | "corpus") {
+        if !matches!(
+            reference.slot.as_str(),
+            "plan" | "analysis" | "corpus" | "discoveries"
+        ) {
             continue;
         }
         let response = tools
@@ -353,6 +364,21 @@ async fn collect(
                 .to_vec()
                 .into(),
         };
+        if a.reference.slot == "discoveries" {
+            let value = parse_unique(&a.bytes)?;
+            if value["provider"] != "codex-native"
+                || value["mode"] != "live"
+                || discoveries.is_some()
+            {
+                return Err(fault("原生发现产物无效或重复"));
+            }
+            discoveries = Some(
+                value["searches"]
+                    .as_array()
+                    .ok_or_else(|| fault("缺少原生查询记录"))?
+                    .clone(),
+            );
+        }
         if a.reference.slot == "plan" && round == 1 || a.reference.slot == "analysis" && round == 2
         {
             let v = parse_unique(&a.bytes)?;
@@ -402,7 +428,11 @@ async fn collect(
         searches: vec![],
         limitations: vec![],
     };
-    output.searches = collect_searches(queries, tools, cancel).await?;
+    output.searches = if native_search {
+        discoveries.ok_or_else(|| fault("本轮缺少受信原生发现回执，禁止HTTP搜索回退"))?
+    } else {
+        collect_searches(queries, tools, cancel).await?
+    };
     let mut selected = candidates(&seeds, &output.searches, &excluded);
     let mut seen = excluded;
     seen.extend(selected.iter().map(|(url, _)| url.clone()));
@@ -549,6 +579,7 @@ impl DomainTool for ReadSource {
 }
 pub enum Native {
     Collect,
+    CollectNative,
     Integrity,
 }
 #[async_trait]
@@ -567,9 +598,9 @@ impl Executor for Native {
     ) -> ExecutionOutcome {
         let result: Result<()> = async {
             match self {
-                Self::Collect => {
+                Self::Collect | Self::CollectNative => {
                     let GoalRunRole::NodeMember { node_id, .. } = tools.goal_context().ok_or_else(|| fault("缺少 Goal 归属"))?.role else { return Err(fault("原生资料节点归属无效")); };
-                    let response = collect(&inv, &tools, if node_id=="collect" {1} else {2}, &cancel).await?;
+                    let response = collect(&inv, &tools, if node_id=="collect" {1} else {2}, &cancel, matches!(self,Self::CollectNative)).await?;
                     for slot in ["corpus", "archive"] {
                         tools.call("artifact.write", json!({"slot":slot,"value":response[slot]})).await?;
                     }

@@ -95,7 +95,8 @@ async fn native_high_effort_failure_and_cancel_preserve_trace_and_stop() {
     .unwrap();
     std::fs::write(root.path().join("config/config.toml"),format!("model_reasoning_effort = \"medium\"\nmodel_provider = \"fixture\"\n[model_providers.fixture]\nname = \"fixture\"\nbase_url = \"http://127.0.0.1:{provider_port}/v1\"\nwire_api = \"responses\"\nrequires_openai_auth = false\nrequest_max_retries = 0\nstream_max_retries = 0\n")).unwrap();
     std::fs::write(root.path().join("connection.json"),br#"{"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6.1-sol"}}"#).unwrap();
-    let config = json!({"node":node,"milkie_cli":cli,"connection_file":root.path().join("connection.json"),"config_dir":root.path().join("config"),"session_dir":root.path().join("sessions"),"codex_binary":codex_dir.join("codex"),"trace":{"policy_id":"native-offline-v1","max_events_per_run":2000,"max_bytes_per_run":1048576,"source_max_events":1000,"source_max_bytes":262144,"max_total_events":10000,"max_total_bytes":4194304,"max_runs":16,"retention_ms":60000}});
+    let native_search = std::env::var("INQUIRY_TEST_NATIVE_SEARCH").as_deref() == Ok("1");
+    let config = json!({"native_search":native_search,"node":node,"milkie_cli":cli,"connection_file":root.path().join("connection.json"),"config_dir":root.path().join("config"),"session_dir":root.path().join("sessions"),"codex_binary":codex_dir.join("codex"),"trace":{"policy_id":"native-offline-v1","max_events_per_run":2000,"max_bytes_per_run":1048576,"source_max_events":1000,"source_max_bytes":262144,"max_total_events":10000,"max_total_bytes":4194304,"max_runs":16,"retention_ms":60000}});
     std::fs::write(
         root.path().join("execution.json"),
         serde_json::to_vec(&config).unwrap(),
@@ -152,6 +153,15 @@ async fn native_high_effort_failure_and_cancel_preserve_trace_and_stop() {
         .split(';')
         .next()
         .unwrap();
+    let (_, _, health) = request(port, "GET", "/api/health", None, None).await;
+    assert_eq!(
+        health["search_provider"],
+        if native_search {
+            "codex-native"
+        } else {
+            "duckduckgo-html"
+        }
+    );
     let (status,_,created)=request(port,"POST","/api/research",Some(cookie),Some(json!({"question":"Offline transport rejection fixture, not a research request","request_key":"native-offline"}))).await;
     assert_eq!(status, 200, "{created}");
     let id = created["id"].as_str().unwrap();
@@ -291,6 +301,6 @@ async fn native_high_effort_failure_and_cancel_preserve_trace_and_stop() {
     server.await.unwrap().unwrap();
     println!(
         "{}",
-        json!({"native_transport":"pass","provider":"local 401 fixture","reasoning_effort":"high","real_model_success":false,"credentials":"fixture only","metadata_trace":true,"graceful_shutdown":true,"native_cancel_confirmed":true})
+        json!({"native_transport":"pass","native_search":native_search,"provider":"local 401 fixture","reasoning_effort":"high","real_model_success":false,"credentials":"fixture only","metadata_trace":true,"graceful_shutdown":true,"native_cancel_confirmed":true})
     );
 }

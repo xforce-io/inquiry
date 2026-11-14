@@ -10,12 +10,42 @@
       },
       "base64": {
         "type": "string"
+      },
+      "encoding": {
+        "enum": [
+          "identity",
+          "gzip"
+        ]
+      },
+      "body_bytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1048576
       }
     },
     "required": [
       "body_sha256",
       "base64"
     ],
-    "additionalProperties": false
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "encoding": {
+              "const": "gzip"
+            }
+          },
+          "required": [
+            "encoding"
+          ]
+        },
+        "then": {
+          "required": [
+            "body_bytes"
+          ]
+        }
+      }
+    ]
   }
 }

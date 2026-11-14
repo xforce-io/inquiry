@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "provider": {
+      "const": "codex-native"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "const": "live"
+    },
+    "searches": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "provider",
+    "run_id",
+    "context_id",
+    "mode",
+    "searches"
+  ],
+  "additionalProperties": false
+}

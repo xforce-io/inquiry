@@ -367,6 +367,7 @@ impl HttpFixture {
             port: 3410,
             session: "goal-test".into(),
             web_dir: Path::new(env!("CARGO_MANIFEST_DIR")).join("web/dist"),
+            search_provider: "duckduckgo-html",
         });
         Self {
             _dir: dir,
@@ -718,10 +719,45 @@ impl Executor for CollectorProbe {
         }
     }
 }
+struct ReceiptReplayProbe(Value);
+#[async_trait]
+impl Executor for ReceiptReplayProbe {
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        if matches!(tools.goal_context().map(|c|c.role),Some(GoalRunRole::NodeMember{node_id,..})if node_id=="scope")
+        {
+            tools.call("artifact.write",json!({"slot":"discoveries","value":article::discovery::project(&self.0,true).unwrap()})).await.unwrap();
+        }
+        CollectorProbe.execute(inv, tools, cancel).await
+    }
+}
 #[tokio::test]
 #[ignore = "External public-network acquisition through production Goal collector; zero models, not article quality"]
 async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_bytes() {
-    let fixture = HttpFixture::with_collection(Arc::new(CollectorProbe), true).await;
+    let replay = std::env::var_os("INQUIRY_NATIVE_RECEIPT_FILE");
+    let fixture = if let Some(path) = replay.as_ref() {
+        let page: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let probe = Arc::new(ReceiptReplayProbe(page));
+        HttpFixture::with_bindings(orchestration::native_bindings(
+            probe.clone(),
+            probe.clone(),
+            probe,
+            "real-receipt-controlled-replay".into(),
+        ))
+        .await
+    } else {
+        HttpFixture::with_collection(Arc::new(CollectorProbe), true).await
+    };
     let id = fixture.create("real-collection-probe").await;
     let view = tokio::time::timeout(Duration::from_secs(480), async {
         loop {
@@ -783,7 +819,11 @@ async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_b
         .unwrap();
     let raw: Value = serde_json::from_slice(&data.bytes).unwrap();
     for source in value.sources.iter().filter(|s| s.fact["usable"] == true) {
-        assert!(source.origin.starts_with("search:"));
+        assert!(source.origin.starts_with(if replay.is_some() {
+            "native-search:"
+        } else {
+            "search:"
+        }));
         let entry: article::ArchivedBody =
             serde_json::from_value(raw[&source.source_id].clone()).unwrap();
         let bytes = entry.restore().unwrap();
@@ -799,7 +839,7 @@ async fn native_collection_saves_actual_search_origins_normalized_text_and_raw_b
     }
     println!(
         "{}",
-        json!({"probe":"production Goal native collector","real_sources":value.sources.len(),"usable":value.sources.iter().filter(|s|s.fact["usable"]==true).count(),"model_calls":0,"article_quality_proven":false})
+        json!({"probe":if replay.is_some(){"controlled replay of prior real native receipt through production collector"}else{"production Goal HTTP search collector"},"real_sources":value.sources.len(),"usable":value.sources.iter().filter(|s|s.fact["usable"]==true).count(),"model_calls":0,"article_quality_proven":false})
     );
     fixture.runtime.shutdown().await.unwrap();
 }
@@ -898,6 +938,7 @@ async fn browser_goal_host() {
         port,
         session: uuid::Uuid::new_v4().to_string(),
         web_dir: Path::new(env!("CARGO_MANIFEST_DIR")).join("web/dist"),
+        search_provider: "duckduckgo-html",
     });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
@@ -1029,8 +1070,19 @@ impl DomainTool for RecoveryTool {
         } else {
             None
         };
+        let raw = if usable {
+            use base64::Engine;
+            use std::io::Write;
+            let body = b"Controlled exact original body";
+            let mut gzip =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            gzip.write_all(body).unwrap();
+            json!({"encoding":"gzip","body_bytes":body.len(),"body_sha256":inquiry::domain::hash(body),"base64":base64::engine::general_purpose::STANDARD.encode(gzip.finish().unwrap())})
+        } else {
+            Value::Null
+        };
         Ok(ToolOutput::json(
-            json!({"fact":{"requested_url":url,"usable":usable,"fetch_status":status,"http_status":http,"reason":"Controlled fixture; not real source"},"paragraphs":if usable {vec!["Controlled saved text"]} else {vec![]},"raw":null}),
+            json!({"fact":{"requested_url":url,"usable":usable,"fetch_status":status,"http_status":http,"reason":"Controlled fixture; not real source"},"paragraphs":if usable {vec!["Controlled saved text"]} else {vec![]},"raw":raw}),
         ))
     }
 }
@@ -1231,4 +1283,92 @@ async fn report_submission_requires_numeric_markers_and_allows_in_run_correction
         vec![true, true, true],
         "opaque-only markers must fail before candidate acceptance, empty-source partial and corrected numeric report remain admissible"
     );
+}
+
+struct NativeDiscoveryProbe;
+#[async_trait]
+impl Executor for NativeDiscoveryProbe {
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        if let Some(GoalRunContext {
+            role: GoalRunRole::NodeMember { node_id, .. },
+            ..
+        }) = tools.goal_context()
+            && matches!(node_id.as_str(), "scope" | "analyze")
+        {
+            // This is explicitly a trusted controlled receipt, never a real model/search claim.
+            let value=article::discovery::project(&json!({"version":1,"runId":format!("fixture-{node_id}"),"contextId":"fixture-context","mode":"live","complete":true,"items":[{"nativeItemId":"search-1","phase":"completed","query":"q","action":{"type":"search","query":"q","queries":null},"results":[{"type":"text_result","url":if node_id=="scope" {"https://example.com/transient"}else{"https://example.com/saved"},"title":"Controlled receipt"}]}]}),true).unwrap();
+            tools
+                .call(
+                    "artifact.write",
+                    json!({"slot":"discoveries","value":value}),
+                )
+                .await
+                .unwrap();
+        }
+        RecoveryProbe.execute(inv, tools, cancel).await
+    }
+}
+#[tokio::test]
+async fn native_discovery_uses_round_receipts_and_fetches_without_http_search_fallback() {
+    let probe = Arc::new(NativeDiscoveryProbe);
+    let script = Arc::new(RecoveryScript::default());
+    let mut bindings = orchestration::native_bindings(
+        probe.clone(),
+        probe.clone(),
+        probe,
+        "native-discovery-fixture".into(),
+    );
+    for id in ["inquiry.search", "inquiry.article_fetch"] {
+        bindings = bindings.tool(Arc::new(RecoveryTool {
+            id,
+            script: script.clone(),
+        }));
+    }
+    let fixture = HttpFixture::with_bindings(bindings).await;
+    let id = fixture.create("controlled-native-discovery").await;
+    let view = fixture.wait(&id, "failed").await;
+    assert_eq!(
+        script.searches.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "HTTP search must never be called"
+    );
+    let outputs = view["outputs"].as_array().unwrap();
+    for (stage, run) in [
+        ("collect", "fixture-scope"),
+        ("supplement", "fixture-analyze"),
+    ] {
+        let corpus = &outputs
+            .iter()
+            .find(|o| o["stage"] == stage && o["artifact"]["slot"] == "corpus")
+            .unwrap()["value"];
+        assert!(
+            corpus["searches"][0]["origin"]
+                .as_str()
+                .unwrap()
+                .contains(run)
+        );
+        assert!(
+            corpus["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["origin"].as_str().unwrap().starts_with("native-search:"))
+        );
+    }
+    let fetches = script.fetches.lock().unwrap().clone();
+    assert!(fetches.contains(&("collect".into(), "https://example.com/transient".into())));
+    assert!(fetches.contains(&("supplement".into(), "https://example.com/transient".into())));
+    assert!(fetches.contains(&("supplement".into(), "https://example.com/saved".into())));
+    fixture.runtime.shutdown().await.unwrap();
 }

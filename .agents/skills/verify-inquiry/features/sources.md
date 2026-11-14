@@ -19,4 +19,11 @@
 
 固定2.5MiB原文档案和1MiB单页边界；核对gzip无损恢复、长度/摘要/CRC损坏拒绝和旧identity读取。零模型真实采集探针须逐份恢复原文字节、核对规范化摘要，记录实际接纳数，不将压缩率当作内容质量。补查搜索不可用时，仅可在20份上限内重取前轮实际发现且允许重试的URL；新候选优先，fact.retry_of关联原资料包版本与source_id，旧失败记录保留，不伪造本轮搜索回执。
 
-方法0.4.1按用户明确指示固定DuckDuckGo HTML。健康字段search_provider及每次回执provider必须为duckduckgo-html；实际query须返回相关公开链接，解码/l/?uddg后按原边界逐页获取；不执行Brave或其它备用请求。受控测试覆盖广告/导航剔除、重复uddg拒绝、不安全目标拒绝、解码去重/30条界限、冷却及取消，另由零模型生产采集探针核对真实搜索→正文→原文/规范化SHA。历史Brave证据保留其原版本，不能改标签冒充新来源。
+历史方法0.4.1及未启用native_search的HTTP模式按用户明确指示使用DuckDuckGo HTML。健康字段search_provider及每次回执provider必须为duckduckgo-html；实际query须返回相关公开链接，解码/l/?uddg后按原边界逐页获取；不执行Brave或其它备用请求。受控测试覆盖广告/导航剔除、重复uddg拒绝、不安全目标拒绝、解码去重/30条界限、冷却及取消，另由零模型生产采集探针核对真实搜索→正文→原文/规范化SHA。历史Brave证据保留其原版本，不能改标签冒充新来源。
+
+
+### v0.9 / 方法0.4.2原生发现
+
+显式native_search=true后health.search_provider=codex-native；范围及初次分析产生宿主保留discoveries，首轮/补查仅使用各自真实原生回执，无HTTP搜索回退。模型写保留槽位须拒绝；不可用、不完整、错归属、超实际查询预算不可冒充已发现。单个原生搜索聚合多个query时保留全部实际查询，用run/item归属而不伪造逐URL对应；未知上游请求数不填零。搜索片段不得进入保存正文或引用。
+
+确定性Integration：`cargo test --locked --test article_goal native_discovery`验证两轮归属、零HTTP搜索及独立Fetch和既有来源重取；`cargo test --locked article::discovery`验证保留槽位、片段剔除及回执边界。实际公开抓取可显式指定INQUIRY_NATIVE_RECEIPT_FILE，运行原native_collection探针：该模式是既有真实回执的受控回放，零新增模型，不作为新自主研究；逐份原文字节与规范化SHA核对沿上文。新原题研究须另外真实创建及验收。

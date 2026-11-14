@@ -42,6 +42,21 @@ pub fn bindings(agent: Arc<dyn Executor>, version: String) -> HostBindings {
     );
     b
 }
+pub fn native_bindings(
+    agent: Arc<dyn Executor>,
+    discovery: Arc<dyn Executor>,
+    planner: Arc<dyn Executor>,
+    version: String,
+) -> HostBindings {
+    let mut b = bindings(agent, version);
+    b.executors.insert("article.discovery".into(), discovery);
+    b.executors.insert("article.native-planner".into(), planner);
+    b.executors.insert(
+        "article.collect".into(),
+        Arc::new(article::Native::CollectNative),
+    );
+    b
+}
 fn tools() -> Vec<String> {
     [
         "artifact.read",
@@ -78,7 +93,7 @@ fn entry(
         instruction: instruction.into(),
         executor: executor.into(),
         skills: if skill {
-            vec!["inquiry-deep-article@0.4.1".into()]
+            vec!["inquiry-deep-article@0.4.2".into()]
         } else {
             vec![]
         },
@@ -147,6 +162,7 @@ pub fn registry(
     root: &Path,
     bindings: &HostBindings,
 ) -> Result<(OrchestrationRegistry, OrchestrationOptions)> {
+    let native = bindings.executors.contains_key("article.discovery");
     let mut r = OrchestrationRegistry::new();
     for name in [
         "text",
@@ -160,6 +176,7 @@ pub fn registry(
         "analysis",
         "corpus",
         "archive",
+        "discoveries",
     ] {
         r.register_schema_file(
             format!("article-{name}"),
@@ -168,20 +185,29 @@ pub fn registry(
         )?;
     }
     r.register_skill_root(
-        "inquiry-deep-article@0.4.1",
+        "inquiry-deep-article@0.4.2",
         &root.join("skills/inquiry-deep-article"),
     )?;
     let planner = "Plan ONLY the supplied frozen Workflow template. The original goal, flow_input.scope and signal_facts are authoritative. If the object is ambiguous or a decisive clarification is missing, use a focused inquiry.search query to check its identity; submit PlannerResult kind=needs_input,input_schema_ref=article-clarification,reason explaining exactly what the user must clarify. Never substitute another similarly named object. Search transport failure alone does not mean the user must provide URLs; preserve it as a service limitation rather than inventing missing user input. When clear, copy task_input.template into a PlanProposal: protocol_version=1, goal_spec_digest/profile_digest from task_input, planning_mode=workflow and EXACT template_digest from task_input. For each template node select its sole capability as capability_ref, copy depends_on/inputs, copy outputs/checks. Do not include capabilities or fillable_inputs in a proposal node. Do not add a template_ref field to PlanProposal (it belongs to GoalPlanning only). No extra nodes or execution here. Submit PlannerResult {protocol_version:1,kind:proposal,proposal:...} to proposal through artifact.write. Do not request plan approval when the question is already clear.";
+    let planner = if native {
+        planner.replace(
+            "use a focused inquiry.search query to check its identity",
+            "use at most one focused native web search to check its identity",
+        )
+    } else {
+        planner.to_owned()
+    };
     let scope = "Execute only research scope. Preserve the full original question and user scope, incorporate explicit signal_facts without overwriting the original. Submit plan with all substantive subquestions, at most eight targeted search_queries (each <=300 characters), and stop_reason defining completion. Cover identity, mechanism, real evidence, alternatives, limitations and counterevidence as applicable. No article or claims of verified facts yet.";
     let analysis = "Analyze the actual saved sources for the full original question. Read the plan and any prior analysis via artifact.read. For every authorized corpus artifact first call inquiry.article_source with artifact_id alone for its source index, then with source_id/keyword/start/limit to read relevant saved paragraphs. Do not whole-read corpus with artifact.read. Evidence tuples must use actual package artifact_id+sha256+source_id+zero-based paragraph+exact short quote. Give linked support/counter judgments and per-subquestion coverage with an evidence-based conclusion or unknown. Distinguish hypotheses, recommendations and unmeasured results. Initial analysis: declare decisive gaps and up to eight focused follow-up search_queries. If two corpora or prior analysis are present, this is final synthesis: integrate both, resolve source relationships/conflicts, preserve unresolved gaps honestly and set search_queries=[]; do not propose unlimited work. decision=ready only when no decisive gaps remain, otherwise need_input. Empty sources require honest limitations and no fabricated evidence. Submit analysis.";
     let draft = "Write ONLY the initial complete Chinese article for the original question. Read accepted plan/analysis, use inquiry.article_source for relevant saved evidence. Develop mechanisms, cross-source synthesis, evidence-based conclusions, credible counterarguments and limits; do not produce a short summary, source list or process log. Copy citation tuples from analysis, use numeric [1], [2], ... matching YOUR citations array positions, never analysis evidence IDs such as [E01], and ensure every unique tuple is used in body. Cumulative short quotations <=25 words per URL. Answer each required part; label conditional recommendations and unknowns. Insufficient evidence remains an honest partial article, not answered by inventing claims. Submit full report to report slot.";
     let revision = "Make ONLY the one predefined revision. Read initial draft, independent review and final analysis via artifact.read; read saved evidence with inquiry.article_source when needed. Address each decisive review deficiency using existing saved material, retain unresolved gaps honestly, and preserve original scope. No searching, new tasks, repeated revision or self-awarded pass. Submit a complete standalone final report, with exact citation tuples copied from the accepted analysis and <=25 quoted words per URL. Use numeric [1], [2], ... markers matching positions in YOUR report.citations array; never use analysis evidence IDs such as [E01] as citation markers. Every citation must occur in the body and no citation tuple may be duplicated. If no correction is justified, retain the article with explicit rationale in limitations. This is not a chat response: submit report.";
     let semantic = "Independently evaluate the EXACT CheckInput subject article (alias article for final or draft for initial) against the ORIGINAL goal and goal_inputs.scope, plan, analysis, and frozen Q1-Q6 rules. You are isolated from the author; never accept answer_status as proof. Each result message MUST name the relevant article section/claim, actual saved source_id+paragraph and support/conflict or decisive gap. Use inquiry.article_source on authorized corpus1/corpus2 IDs to verify key facts and counterclaims against actual saved paragraphs. Do not just read the citation list or analysis summaries. Check all original subquestions even if the author's plan omitted them. Research quality is distinct from deployment validation: when the question explicitly lacks measurements and asks for a pilot proposal, judge the supported reasoning, measurement/exit plan and resource feasibility; do not demand nonexistent results or invent facts. Unknown essential comparison facts cannot be deferred as if already answered. All six rules are mandatory; output pass/fail/error per rule, error takes precedence then fail. Copy exact rule IDs and allowed evidence_refs only from CheckInput. No article rewriting, extra search or author context. Submit only Core Evaluation candidate to evaluation slot; Runtime owns identity and version binding.";
+    let discovery_instruction = " Use native web search NOW for the declared queries, with at most eight actual queries in this run (each <=300 characters). Do not use inquiry.search or fabricate source URLs. Search results are discovery hints only; claims require independently saved source paragraphs. Do not write discoveries: the host writes that reserved slot from native receipts. In initial analysis search only decisive follow-up gaps; zero queries is allowed when there are none.";
     for (id, executor, instruction, input, allowed, outputs, ms, calls, skill) in [
         (
             "article-planner",
             "article.agent",
-            planner,
+            planner.as_str(),
             "article-planner-input",
             vec!["inquiry.search", "artifact.write"],
             vec![("proposal", "_tl.planner-result@1")],
@@ -223,6 +249,20 @@ pub fn registry(
             "article-question",
             vec!["artifact.read", "artifact.write", "inquiry.article_source"],
             vec![("analysis", "article-analysis")],
+            300000,
+            80,
+            true,
+        ),
+        (
+            "article-initial-analysis",
+            "article.discovery",
+            analysis,
+            "article-question",
+            vec!["artifact.read", "artifact.write", "inquiry.article_source"],
+            vec![
+                ("analysis", "article-analysis"),
+                ("discoveries", "article-discoveries"),
+            ],
             300000,
             80,
             true,
@@ -272,19 +312,52 @@ pub fn registry(
             false,
         ),
     ] {
+        if id == "article-initial-analysis" && !native {
+            continue;
+        }
+        let mut allowed = allowed;
+        let mut outputs = outputs;
+        let executor = if native && id == "article-planner" {
+            "article.native-planner"
+        } else if native && id == "article-scope" {
+            "article.discovery"
+        } else {
+            executor
+        };
+        if native && matches!(id, "article-planner" | "article-collect") {
+            allowed.retain(|tool| *tool != "inquiry.search");
+        }
+        let discovery = native && matches!(id, "article-scope" | "article-initial-analysis");
+        if native && id == "article-scope" {
+            outputs.push(("discoveries", "article-discoveries"));
+        }
+        let instruction = if discovery {
+            format!("{instruction}{discovery_instruction}")
+        } else {
+            instruction.to_owned()
+        };
         r.register_entry(
             format!("{id}@1"),
-            entry(executor, instruction, input, &allowed, &outputs, skill),
+            entry(executor, &instruction, input, &allowed, &outputs, skill),
             policy(id, ms, calls),
         )?;
     }
+    let scope_outputs = if native {
+        json!({"plan":{"schema_ref":"article-plan"},"discoveries":{"schema_ref":"article-discoveries"}})
+    } else {
+        json!({"plan":{"schema_ref":"article-plan"}})
+    };
     r.register_capability(serde_json::from_value(capability(
         "article-scope",
         json!({"question":question_port()}),
-        json!({"plan":{"schema_ref":"article-plan"}}),
+        scope_outputs,
         true,
     ))?)?;
-    r.register_capability(serde_json::from_value(capability("article-collect",json!({"plan":port("article-plan",true),"analysis":port("article-analysis",false),"corpus":port("article-corpus",false)}),json!({"corpus":{"schema_ref":"article-corpus"},"archive":{"schema_ref":"article-archive"}}),false))?)?;
+    let mut collect_inputs = json!({"plan":port("article-plan",true),"analysis":port("article-analysis",false),"corpus":port("article-corpus",false)});
+    if native {
+        collect_inputs["discoveries"] = port("article-discoveries", true);
+    }
+    r.register_capability(serde_json::from_value(capability("article-collect",collect_inputs,json!({"corpus":{"schema_ref":"article-corpus"},"archive":{"schema_ref":"article-archive"}}),false))?)?;
     let common = json!({"question":question_port(),"plan":port("article-plan",true),"corpus1":port("article-corpus",true),"corpus2":port("article-corpus",false),"analysis":port("article-analysis",false)});
     r.register_capability(serde_json::from_value(capability(
         "article-analysis",
@@ -292,6 +365,9 @@ pub fn registry(
         json!({"analysis":{"schema_ref":"article-analysis"}}),
         true,
     ))?)?;
+    if native {
+        r.register_capability(serde_json::from_value(capability("article-initial-analysis", common.clone(),json!({"analysis":{"schema_ref":"article-analysis"},"discoveries":{"schema_ref":"article-discoveries"}}),true))?)?;
+    }
     let mut writing = common;
     writing["analysis"] = port("article-analysis", true);
     writing["corpus2"] = port("article-corpus", true);
@@ -366,18 +442,33 @@ pub fn registry(
         template_node(
             "article-collect",
             &["scope"],
-            json!({"plan":from("scope","plan")}),
+            if native {
+                json!({"plan":from("scope","plan"),"discoveries":from("scope","discoveries")})
+            } else {
+                json!({"plan":from("scope","plan")})
+            },
         ),
     );
     nodes.insert(
         "analyze",
         template_node(
-            "article-analysis",
+            if native {
+                "article-initial-analysis"
+            } else {
+                "article-analysis"
+            },
             &["collect"],
             json!({"question":goal,"plan":from("scope","plan"),"corpus1":from("collect","corpus")}),
         ),
     );
-    nodes.insert("supplement",template_node("article-collect",&["analyze"],json!({"plan":from("scope","plan"),"analysis":from("analyze","analysis"),"corpus":from("collect","corpus")})));
+    let mut supplement_inputs = json!({"plan":from("scope","plan"),"analysis":from("analyze","analysis"),"corpus":from("collect","corpus")});
+    if native {
+        supplement_inputs["discoveries"] = from("analyze", "discoveries");
+    }
+    nodes.insert(
+        "supplement",
+        template_node("article-collect", &["analyze"], supplement_inputs),
+    );
     let analysis_inputs = json!({"question":goal,"plan":from("scope","plan"),"corpus1":from("collect","corpus"),"corpus2":from("supplement","corpus"),"analysis":from("analyze","analysis")});
     nodes.insert(
         "synthesize",
@@ -409,7 +500,15 @@ pub fn registry(
         ("corpus2", "article-corpus", "article-collect"),
         ("archive1", "article-archive", "article-collect"),
         ("archive2", "article-archive", "article-collect"),
-        ("analysis_initial", "article-analysis", "article-analysis"),
+        (
+            "analysis_initial",
+            "article-analysis",
+            if native {
+                "article-initial-analysis"
+            } else {
+                "article-analysis"
+            },
+        ),
         ("analysis", "article-analysis", "article-analysis"),
         ("draft", "article-report", "article-draft"),
         ("article", "article-report", "article-revise"),
@@ -420,7 +519,7 @@ pub fn registry(
             json!({"schema_ref":schema,"allowed_capabilities":[format!("{cap}@1")]}),
         );
     }
-    let capabilities = [
+    let mut capabilities = [
         "article-scope@1",
         "article-collect@1",
         "article-analysis@1",
@@ -431,6 +530,9 @@ pub fn registry(
     .into_iter()
     .map(str::to_owned)
     .collect::<Vec<_>>();
+    if native {
+        capabilities.push("article-initial-analysis@1".into());
+    }
     r.register_profile(serde_json::from_value(json!({"id":"inquiry-article","version":"1","goal_input_schema":"article-input","goal_selectors":{"/goal":"article-text"},"planner_entry_ref":"article-planner@1","capabilities":capabilities,"planning_input_schemas":["article-clarification"],"templates":[TEMPLATE],"outputs":profile_outputs,"final_outputs":["article"],"checks":requirements,"allowed_tools":tools()}))?)?;
     let receipt = r.validate_and_freeze(bindings)?;
     let options = OrchestrationOptions {
