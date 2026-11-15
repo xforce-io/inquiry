@@ -154,19 +154,19 @@ pub(crate) fn honest_need_input(subquestions: &[String]) -> Value {
             json!({
                 "question": question,
                 "status": "unknown",
-                "conclusion": "初析在登记的阶段时限前提交失败，此项保持未知，不补写来源引文。",
+                "conclusion": "分析在登记的阶段时限前提交失败，此项保持未知，不补写来源引文。",
                 "evidence_ids": []
             })
         })
         .collect::<Vec<_>>();
     json!({
         "judgments": [{
-            "text": "初析没有在阶段时限内提交基于已保存来源的证据判断。",
+            "text": "分析没有在阶段时限内提交基于已保存来源的证据判断。",
             "support": [],
             "counter": [],
             "limitations": ["宿主只记录这个时限缺口，不编造引用。"]
         }],
-        "gaps": ["初析未在阶段时限内提交证据分析"],
+        "gaps": ["分析未在阶段时限内提交已核对证据"],
         "decision": "need_input",
         "evidence": [],
         "search_queries": [],
@@ -182,7 +182,10 @@ fn unfinished_discoveries(run_id: &str) -> Value {
         "searches": []
     })
 }
-async fn plan_subquestions(inv: &Invocation, tools: &Arc<dyn ToolBridge>) -> Vec<String> {
+pub(crate) async fn plan_subquestions(
+    inv: &Invocation,
+    tools: &Arc<dyn ToolBridge>,
+) -> Vec<String> {
     let Some(plan) = inv
         .artifacts
         .iter()
