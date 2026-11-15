@@ -355,6 +355,9 @@ pub fn registry(
         ) {
             instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the required output before the hard deadline. For analysis, submit evidence already read or decision=need_input with empty evidence. For a report, do not invent citations; a revision may write the existing draft unchanged. Do not keep reading until the deadline.");
         }
+        if id == "article-semantic" {
+            instruction.push_str(" For an evaluation, the host refuses inquiry.article_source once remaining time is inside the finalize window. Submit the evaluation from what was already read. Do not invent a pass, and do not keep paging.");
+        }
         if id == "article-analysis" {
             instruction.push_str(&format!(
                 " Synthesis may open {} distinct saved sources. A source index call does not count. Before opening any saved source, call a keyword index once: non-empty keyword and no source_id. The host refuses a page until that call succeeds. A source index without a keyword does not satisfy it. A keyword index lists matching saved sources and does not count. When a hit names a paragraph, the first open of that source must cover it: no in-page keyword, and start through start+limit must include that paragraph. A refused open does not count as read. Open every still-unread source from the latest non-empty keyword result before any source it did not name; the host refuses the other page. An empty keyword result does not cancel that list. Reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. Unmeasured local results are limitations, not gaps.",

@@ -144,6 +144,9 @@ impl ReportBridge {
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
         let keyword = args["keyword"].as_str().unwrap_or("").trim().to_owned();
+        if id == "inquiry.article_source" && self.output_slot == "evaluation" {
+            self.admit_review_read()?;
+        }
         if id == "inquiry.article_source" && self.output_slot == "analysis" {
             self.admit_synthesis_read(&args)?;
         }
@@ -189,6 +192,19 @@ impl ReportBridge {
         };
         self.report_written.store(true, Ordering::Release);
         Ok(result)
+    }
+
+    fn admit_review_read(&self) -> Result<()> {
+        let reserved = self
+            .inner
+            .budget_hint()
+            .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
+        if reserved {
+            return Err(fault(
+                "评审的来源页已够提交判断，请立刻提交评审，不要继续翻页",
+            ));
+        }
+        Ok(())
     }
 
     fn admit_synthesis_read(&self, args: &Value) -> Result<()> {
@@ -1113,6 +1129,91 @@ mod tests {
         }
         assert_eq!(reads, 0);
         assert_eq!(writes[0]["value"]["evidence"][0]["paragraph"], 26);
+    }
+
+    struct ReviewProbe {
+        expect_refuse: bool,
+    }
+    #[async_trait]
+    impl Executor for ReviewProbe {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            let result = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s5", "start": 0, "limit": 5}),
+                )
+                .await;
+            if self.expect_refuse {
+                let err = result.expect_err("review must refuse this source read");
+                assert!(err.to_string().contains("请立刻提交评审"));
+                tools
+                    .call(
+                        "artifact.write",
+                        json!({"slot": "evaluation", "value": {"verdict": "fail"}}),
+                    )
+                    .await
+                    .expect("evaluation write");
+            } else {
+                result.expect("review source read reaches the tool");
+            }
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    async fn review_page(
+        remaining_ms: u64,
+        expect_refuse: bool,
+    ) -> (ExecutionOutcome, Vec<Value>, u32) {
+        let tools = Arc::new(SlotTools {
+            node: "review",
+            remaining_ms,
+            draft_text: None,
+            writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
+        });
+        let guard = ReviseGuard(Arc::new(ReviewProbe { expect_refuse }));
+        let outcome = guard
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        let writes = tools.writes.lock().await.clone();
+        let reads = tools.reads.load(Ordering::Acquire);
+        (outcome, writes, reads)
+    }
+
+    #[tokio::test]
+    async fn review_refuses_a_source_read_inside_the_finalize_window() {
+        let (outcome, writes, reads) = review_page(REVISE_FINALIZE_BEFORE_MS, true).await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(reads, 0);
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["slot"], "evaluation");
+        assert_eq!(
+            REVISE_FINALIZE_BEFORE_MS, 90_000,
+            "the review window stays the existing finalize threshold"
+        );
+    }
+
+    #[tokio::test]
+    async fn review_source_read_outside_the_finalize_window_reaches_the_tool() {
+        let (outcome, writes, reads) = review_page(REVISE_FINALIZE_BEFORE_MS + 1, false).await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(reads, 1);
+        assert!(writes.is_empty());
     }
 
     #[tokio::test]
