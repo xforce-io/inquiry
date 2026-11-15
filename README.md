@@ -57,7 +57,7 @@ npm run build --prefix web
 
 阶段策略由TaskLoop强制，分析80、其它40、最后2次仅允许产物提交；失败准入扣额，拒绝探索不吃提交保留。阶段/检查时间显式继承原任务剩余，任务active上限仍30分钟。方法0.3.7的`_taskloop_budget`元数据不进入业务回执/产物。
 
-本地会话内的只读入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。旧未采集实例返回未知/disabled或缺口，不补造历史。Host/Origin/session边界保持，不提供正文采集或独立监控页面。
+本地会话内的只读入口：`GET /api/research/{id}/trace?limit=100`、`/trace/export?limit=100`、`/budgets`。Trace支持可选`run_id`及`after`游标，limit必须为1–1000；导出同样有界。旧未采集实例返回未知/disabled或缺口，不补造历史。Host/Origin/session边界保持，不提供正文采集。详情页在研究开始后用运行时序或运行编制显示已经记到的动作，不另设监控页面。
 
 启动器已使用MilkieExecutor并开启宿主显式容量/保留的metadata-only治理；SIGINT/SIGTERM及HTTP服务异常均等待Runtime停止。真实原生Codex+实际Milkie+本机401端点测试核对请求high、失败关联、原生取消和正常关闭；该端点没有真实模型或账号，不代表真实研究验收。
 
