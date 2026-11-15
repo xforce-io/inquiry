@@ -2,6 +2,7 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::sync::Mutex;
 
 /// Reads stop this long before the registered 300000 ms cap so one model turn can still submit.
 pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
@@ -13,6 +14,31 @@ pub struct ReviseGuard(pub Arc<dyn Executor>);
 struct ReportBridge {
     inner: Arc<dyn ToolBridge>,
     report_written: AtomicBool,
+    /// Serializes the one report write so a late draft cannot replace a report already stored.
+    slot: Mutex<()>,
+}
+
+enum Settle {
+    Forward,
+    CompletedModel,
+    CopyDraft,
+}
+
+fn settle(report_written: bool, missed: bool) -> Settle {
+    if report_written && missed {
+        Settle::CompletedModel
+    } else if missed {
+        Settle::CopyDraft
+    } else {
+        Settle::Forward
+    }
+}
+
+fn missed_outcome(outcome: &ExecutionOutcome) -> bool {
+    matches!(
+        outcome,
+        ExecutionOutcome::Failed { code, .. } if code == "limit_reached"
+    ) || matches!(outcome, ExecutionOutcome::Cancelled)
 }
 
 fn accepted_draft(text: &str) -> Option<Value> {
@@ -53,7 +79,6 @@ async fn watch_revise_submission<T: Send + 'static>(
                     return GuardFinish::Submitted;
                 }
                 if should_fallback() {
-                    submitted.store(true, Ordering::Release);
                     child.cancel();
                     tokio::spawn(async move {
                         let _ = model.await;
@@ -102,17 +127,21 @@ impl ReportBridge {
         args: Value,
         metadata: Option<ToolCallMetadata>,
     ) -> Result<Value> {
-        let wrote_report = id == "artifact.write" && args["slot"] == "report";
-        if wrote_report && self.report_written.load(Ordering::Acquire) {
+        if !(id == "artifact.write" && args["slot"] == "report") {
+            return match metadata {
+                Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await,
+                None => self.inner.call(id, args).await,
+            };
+        }
+        let _guard = self.slot.lock().await;
+        if self.report_written.load(Ordering::Acquire) {
             return Err(fault("report已经提交"));
         }
         let result = match metadata {
             Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
             None => self.inner.call(id, args).await?,
         };
-        if wrote_report {
-            self.report_written.store(true, Ordering::Release);
-        }
+        self.report_written.store(true, Ordering::Release);
         Ok(result)
     }
 }
@@ -137,20 +166,30 @@ async fn saved_draft(inv: &Invocation, tools: &Arc<dyn ToolBridge>) -> Option<Va
 }
 
 impl ReviseGuard {
-    async fn keep_draft(tools: &Arc<dyn ToolBridge>, draft: Option<&Value>) -> ExecutionOutcome {
+    async fn keep_draft(bridge: &ReportBridge, draft: Option<&Value>) -> ExecutionOutcome {
+        let _guard = bridge.slot.lock().await;
+        if bridge.report_written.load(Ordering::Acquire) {
+            return ExecutionOutcome::Completed {
+                usage: json!({"submission":"report_written","native_model":true}),
+            };
+        }
         let Some(draft) = draft else {
             return ExecutionOutcome::Failed {
                 code: "limit_reached".into(),
                 message: "修订未在时限内提交报告，且没有可沿用的已接受草稿".into(),
             };
         };
-        match tools
+        match bridge
+            .inner
             .call("artifact.write", json!({"slot":"report","value":draft}))
             .await
         {
-            Ok(_) => ExecutionOutcome::Completed {
-                usage: json!({"submission":"deadline_draft","native_model":true}),
-            },
+            Ok(_) => {
+                bridge.report_written.store(true, Ordering::Release);
+                ExecutionOutcome::Completed {
+                    usage: json!({"submission":"deadline_draft","native_model":true}),
+                }
+            }
             Err(e) => ExecutionOutcome::Failed {
                 code: e.code,
                 message: e.message,
@@ -169,6 +208,7 @@ impl ReviseGuard {
         let bridge = Arc::new(ReportBridge {
             inner: tools.clone(),
             report_written: AtomicBool::new(false),
+            slot: Mutex::new(()),
         });
         let child = cancel.child_token();
         let executor = Arc::clone(&self.0);
@@ -198,24 +238,24 @@ impl ReviseGuard {
                 _ => ExecutionOutcome::Cancelled,
             };
         }
+        let model_report = ExecutionOutcome::Completed {
+            usage: json!({"submission":"report_written","native_model":true}),
+        };
         match finish {
-            GuardFinish::Model(outcome) => {
-                let missed = matches!(
-                    outcome,
-                    ExecutionOutcome::Failed { ref code, .. } if code == "limit_reached"
-                ) || matches!(outcome, ExecutionOutcome::Cancelled);
-                if missed && !bridge.report_written.load(Ordering::Acquire) {
-                    bridge.report_written.store(true, Ordering::Release);
-                    return Self::keep_draft(&tools, draft.as_ref()).await;
-                }
-                outcome
-            }
-            GuardFinish::Submitted => ExecutionOutcome::Completed {
-                usage: json!({"submission":"report_written","native_model":true}),
+            GuardFinish::Model(outcome) => match settle(
+                bridge.report_written.load(Ordering::Acquire),
+                missed_outcome(&outcome),
+            ) {
+                Settle::CompletedModel => model_report,
+                Settle::CopyDraft => Self::keep_draft(&bridge, draft.as_ref()).await,
+                Settle::Forward => outcome,
             },
+            GuardFinish::Submitted => model_report,
             GuardFinish::Fallback => {
-                bridge.report_written.store(true, Ordering::Release);
-                Self::keep_draft(&tools, draft.as_ref()).await
+                match settle(bridge.report_written.load(Ordering::Acquire), true) {
+                    Settle::CopyDraft => Self::keep_draft(&bridge, draft.as_ref()).await,
+                    _ => model_report,
+                }
             }
         }
     }
@@ -333,5 +373,116 @@ mod tests {
         .await;
         assert!(matches!(finish, GuardFinish::Model("model")));
         assert!(!child.is_cancelled());
+    }
+
+    #[test]
+    fn written_report_then_deadline_still_completes() {
+        let deadline = ExecutionOutcome::Failed {
+            code: "limit_reached".into(),
+            message: "execution deadline exceeded".into(),
+        };
+        assert!(matches!(
+            settle(true, missed_outcome(&deadline)),
+            Settle::CompletedModel
+        ));
+        assert!(matches!(
+            settle(true, missed_outcome(&ExecutionOutcome::Cancelled)),
+            Settle::CompletedModel
+        ));
+        assert!(matches!(
+            settle(false, missed_outcome(&deadline)),
+            Settle::CopyDraft
+        ));
+        let other = ExecutionOutcome::Failed {
+            code: "harness_unavailable".into(),
+            message: "down".into(),
+        };
+        assert!(matches!(
+            settle(true, missed_outcome(&other)),
+            Settle::Forward
+        ));
+        assert!(matches!(settle(true, true), Settle::CompletedModel));
+        assert!(matches!(settle(false, true), Settle::CopyDraft));
+    }
+
+    struct Store {
+        report: Mutex<Option<Value>>,
+    }
+    #[async_trait]
+    impl ToolBridge for Store {
+        fn specs(&self) -> Vec<ToolSpec> {
+            Vec::new()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            None
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            None
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            None
+        }
+        async fn reject_json_candidate(&self, _: u64, _: ToolCallMetadata) -> Result<Value> {
+            Ok(json!({}))
+        }
+        async fn call(&self, id: &str, args: Value) -> Result<Value> {
+            assert_eq!(id, "artifact.write");
+            *self.report.lock().await = Some(args["value"].clone());
+            Ok(json!({}))
+        }
+    }
+
+    fn bridge(store: Arc<Store>) -> ReportBridge {
+        ReportBridge {
+            inner: store,
+            report_written: AtomicBool::new(false),
+            slot: Mutex::new(()),
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_keeps_the_model_report() {
+        let store = Arc::new(Store {
+            report: Mutex::new(None),
+        });
+        let bridge = bridge(store.clone());
+        bridge
+            .call(
+                "artifact.write",
+                json!({"slot":"report","value":{"citations":[{"quote":"模型原句","source_id":"r1s1"}]}}),
+            )
+            .await
+            .unwrap();
+        let draft = json!({"citations":[{"quote":"草稿","source_id":"r1s1"},{"quote":"多出来的","source_id":"r1s2"}]});
+        let outcome = ReviseGuard::keep_draft(&bridge, Some(&draft)).await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        let saved = store.report.lock().await.clone().unwrap();
+        assert_eq!(saved["citations"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["citations"][0]["quote"], "模型原句");
+    }
+
+    #[tokio::test]
+    async fn fallback_copies_the_draft_without_adding_citations() {
+        let store = Arc::new(Store {
+            report: Mutex::new(None),
+        });
+        let bridge = bridge(store.clone());
+        let draft = json!({"citations":[{"quote":"草稿原句","source_id":"r1s1"}]});
+        let outcome = ReviseGuard::keep_draft(&bridge, Some(&draft)).await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "deadline_draft");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(store.report.lock().await.clone().unwrap(), draft);
+        let rejected = bridge
+            .call(
+                "artifact.write",
+                json!({"slot":"report","value":{"citations":[{"quote":"后来的","source_id":"r9s9"}]}}),
+            )
+            .await;
+        assert!(rejected.is_err());
+        assert_eq!(store.report.lock().await.clone().unwrap(), draft);
     }
 }
