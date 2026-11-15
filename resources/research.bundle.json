@@ -2,7 +2,7 @@
   "contract_version": 1,
   "entries": {
     "inquiry.scope": {
-      "executor": "research.agent",
+      "executor": "research.routine",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],
@@ -25,7 +25,7 @@
       ]
     },
     "inquiry.discover": {
-      "executor": "research.agent",
+      "executor": "research.routine",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],
@@ -82,7 +82,7 @@
       ]
     },
     "inquiry.capture": {
-      "executor": "research.agent",
+      "executor": "research.routine",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],
@@ -119,7 +119,7 @@
       ]
     },
     "inquiry.catalogue": {
-      "executor": "research.agent",
+      "executor": "research.routine",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],
@@ -156,7 +156,7 @@
       ]
     },
     "inquiry.analyze": {
-      "executor": "research.agent",
+      "executor": "research.higher",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],
@@ -199,7 +199,7 @@
       ]
     },
     "inquiry.report": {
-      "executor": "research.agent",
+      "executor": "research.routine",
       "skills": [
         "inquiry-deep-research@0.3.7"
       ],

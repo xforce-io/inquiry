@@ -6,11 +6,11 @@ TypeScript Web → 薄 Rust Web 宿主 → TaskLoop Rust crate。Inquiry 提供�
 
 ## 本地运行
 
-需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `2eb8d9aaaf0daa1efff8feabf06f6e9c874e8e3e`，Milkie #283候选，尚未合入；未发布包）。研究按用户2026-11-13要求改为固定 `gpt-6.1-sol/high`，TaskLoop→Milkie→Codex；没有旧执行器或模型回退。当前代码固定 TaskLoop `6a2483aa101d7f73f49f842d44db19286a9d01bc`，通过公开 Goal/DAG 接口运行方法 0.4.5；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
+需要 Rust 1.91.1+、Node 20.19+、curl、Codex CLI **0.166.0** 和固定 Milkie CLI 构建（Goal 协议构建 `2eb8d9aaaf0daa1efff8feabf06f6e9c874e8e3e`，Milkie #283候选，尚未合入；未发布包）。研究执行登记两档：较高档 `gpt-6.1-sol/high`，较低档 `gpt-6-astra/medium`。Playbook 把分析绑到较高档，其余工作状态绑到较低档；任务事实为 `difficulty=hard` 时，Inquiry 把较低档状态改选较高档。TaskLoop 不判断难易，流程定义没有模型字段。工具调用预算仍是分析 80 次、其余工作状态 40 次。未登记的模型或推理强度被拒绝，没有执行器回退。当前代码固定 TaskLoop `6a2483aa101d7f73f49f842d44db19286a9d01bc`，通过公开 Goal/DAG 接口运行方法 0.4.5；精确依赖以 Cargo.toml/Cargo.lock 为准。原生 Codex 还需要同版本的 `codex-code-mode-host` 辅助二进制，两者通过任务专用 PATH 选择。
 
-宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，基础字段必填；codex_binary和reuse_native_login为显式可选项。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`须提前准备且不与框架存储重叠；默认使用互不包含的专用目录，显式复用登录的例外见下文。连接文件只接受[固定模型的规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。
+宿主必须提供 `INQUIRY_EXECUTION_CONFIG` 指向绝对路径 JSON，基础字段必填；codex_binary和reuse_native_login为显式可选项。配置结构见[执行配置示例](docs/examples/execution.json)；其中限额仅展示字段，**不是默认或已经批准的生产取值**，真实运行前须由宿主固定。`node`、`milkie_cli`、`connection_file`均为实际绝对文件路径；`config_dir`与`session_dir`须提前准备且不与框架存储重叠；默认使用互不包含的专用目录，显式复用登录的例外见下文。一次加载接受一档。连接文件只接受该档的[规范字段](docs/examples/connection.json)，不从环境继承模型/凭据。示例连接是较高档 `gpt-6.1-sol`。较低档把同一结构里的模型写成 `gpt-6-astra`，并把专用原生配置的推理强度写成 `medium`。
 
-未提供`codex_binary`时，`config_dir/config.toml`必须显式设置 `model_reasoning_effort = "high"`；所有模式均不选择覆盖profile。显式提供固定Codex绝对文件`codex_binary`时，应用在自身私有目录生成启动器，仅对子进程强制high，不修改全局配置。宿主可显式设置`reuse_native_login=true`复用已有登录，此时须提供codex_binary，并令session_dir指向config_dir/sessions既有实际目录；业务/Trace/Milkie存储仍保持独立。原生CLI正常管理该登录及本次会话，应用不复制凭据。原生登录由宿主在该目录准备，应用不复制、不读取或回显`auth.json`。配置通过只说明可装配，登录、CLI版本和模型权限仍由实际执行确认。Codex可执行文件必须在宿主PATH中；不自动替换全局安装。
+未提供`codex_binary`时，`config_dir/config.toml`的 `model_reasoning_effort` 必须等于该连接模型的已登记推理强度：较高档 `high`，较低档 `medium`。所有模式均不选择覆盖profile。显式提供固定Codex绝对文件`codex_binary`且模型为较高档时，应用在自身私有目录生成启动器，仅对子进程强制high，不修改配置文件。较低档的启动器注入 medium。宿主可显式设置`reuse_native_login=true`复用已有登录，此时须提供codex_binary，并令session_dir指向config_dir/sessions既有实际目录；业务/Trace/Milkie存储仍保持独立。原生CLI正常管理该登录及本次会话，应用不复制凭据。原生登录由宿主在该目录准备，应用不复制、不读取或回显`auth.json`。配置通过只说明可装配，登录、CLI版本和模型权限仍由实际执行确认。Codex可执行文件必须在宿主PATH中；不自动替换全局安装。
 
 ```sh
 npm ci --prefix web

@@ -7,7 +7,7 @@ description: 在本地真实 Inquiry 上验证研究、可靠性、质量实验�
 
 ## Launch
 
-仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录由宿主按授权显式提供，默认测试专用目录，或显式reuse_native_login复用现有登录；应用不复制或自动发现全局凭据。当前实际研究固定 gpt-6.1-sol/high（2026-11-13用户指定）；历史Astra实验保留原版本，模型不回退。
+仓库根目录运行 `npm ci --prefix web`，`VITE_BUILD_SHA=$(git rev-parse HEAD) npm run build --prefix web`，`cargo build --locked`。Node 20.19+、Rust 1.91.1+、curl、Codex CLI 0.166.0、固定Milkie构建必须可用；登录由宿主按授权显式提供，默认测试专用目录，或显式reuse_native_login复用现有登录；应用不复制或自动发现全局凭据。已登记两档：较高档 gpt-6.1-sol/high，较低档 gpt-6-astra/medium。研究 Playbook 把分析绑到较高档，其余工作状态绑到较低档；`difficulty=hard` 时 Inquiry 把较低档状态改选较高档。未登记模型或推理强度拒绝，不改写连接文件与专用原生配置。历史 Astra 实验保留原版本。文章编排的单连接示例仍是较高档。
 
 Issue #3 使用README和`docs/examples/execution.json`中的显式执行配置；示例限额不是默认批准。`INQUIRY_EXECUTION_CONFIG`是绝对JSON路径，node/CLI/连接文件及专用config/session由宿主提供。原生config.toml须high且无profile覆盖；或显式codex_binary，由私有启动器对子进程覆盖high。复用既有登录须显式reuse_native_login=true，session_dir等于config_dir/sessions实际路径，框架存储仍隔离；不改全局配置、不复制认证。配置通过不代表账号/模型就绪。方法0.4.5当前Milkie构建固定2eb8d9aaaf0daa1efff8feabf06f6e9c874e8e3e（#283原生搜索候选，含已合入#282警告修复，无包发布）；执行配置显式native_search=true，原生模式不调用HTTP搜索回退，health.search_provider须为codex-native；原98b5ec1构建及两次警告误拒绝失败保留（execution-sidecar协议不变）；Codex与同版codex-code-mode-host均在任务专用PATH中，TaskLoop固定rev见Cargo.lock。无适用专用真实环境时保持blocked；宿主仅在用户明确授权后准备专用登录，不用本机401夹具当报告验收。
 

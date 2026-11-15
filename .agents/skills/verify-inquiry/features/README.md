@@ -31,3 +31,12 @@
 | #7 S3 | [研究质量](quality.md) | S3.A1–A4：真实初稿/评价/修订/最终评价、真实语义负例、错误/版本、资源边界；关联 reliability.md |
 | #7 S4 | [Web体验](web.md) | S4.A1–A4：创建/阅读/引用/刷新、五类结果、隔离/重放/读取失败；关联 reliability.md 与 execution.md |
 | #7 S5 | [研究质量](quality.md) | S5.A1–A3：预登记复杂文章、独立效果核验、引用/负例、完整尝试与资源账目 |
+
+## Issue #11 / #12 模型档位
+
+事实源：[Issue #11](https://github.com/xforce-io/inquiry/issues/11)、[Issue #12](https://github.com/xforce-io/inquiry/issues/12)、[L1 v0.1](../../../../docs/design/11-state-model-tiers/product.md)、[L1 v0.1](../../../../docs/design/12-task-difficulty-tier/product.md)。不改 #2/#3/#7 的验收结论。
+
+| Story | 主要功能 | 必需路径及关联 |
+|---|---|---|
+| #11 S1–S4 | [执行与Trace](execution.md) | S1.A1 两档加载且四份文件不变；S2.A1 两个工作状态两个已登记模型 id；S3.A1 未登记模型与推理强度拒绝且不含密钥；S4.A1 分析 80、其余 40 |
+| #12 S1–S3 | [执行与Trace](execution.md) | S1.A1 一个较低档状态在 hard 时改为较高档；S2.A1 普通事实保持较低档；S3.A1 结果只是已登记档位，TaskLoop 流程 schema 无难易字段也无模型字段 |
