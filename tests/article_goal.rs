@@ -281,6 +281,19 @@ async fn data_review_failure_reaches_revision_and_final_goal_verdict_is_independ
                 .all(|n| n.status == GoalNodeStatus::Succeeded)
         );
         assert!(final_state.nodes["revise"].outputs.contains_key("report"));
+        let revise = final_state
+            .runs
+            .values()
+            .find(|run| run.entry_ref == "article-revise@1")
+            .unwrap();
+        let policy = &revise.budget.as_ref().unwrap().policy;
+        assert_eq!(policy.max_run_ms, Some(300_000));
+        assert_eq!(
+            policy.finalize_before_ms,
+            article::revise::REVISE_FINALIZE_BEFORE_MS
+        );
+        assert!(policy.finalize_before_ms < policy.max_run_ms.unwrap());
+        assert_eq!(final_state.limits.max_active_ms, 1_800_000);
         assert_eq!(final_state.budget.runs_used, 11);
         assert!(final_state.budget.reserved.is_empty());
         let evaluations = goals.evaluations(&id, &Caller::local()).await.unwrap();
