@@ -148,6 +148,15 @@ impl Executor for Agent {
                     .iter()
                     .find(|a| a.slot == "corpus" && a.state_id.contains("collect"))
                     .unwrap();
+                if node_id == "synthesize" {
+                    tools
+                        .call(
+                            "inquiry.article_source",
+                            json!({"artifact_id":reference.id,"keyword":"mechanism"}),
+                        )
+                        .await
+                        .unwrap();
+                }
                 let response = tools
                     .call(
                         "inquiry.article_source",

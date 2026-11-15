@@ -1,6 +1,6 @@
 //! Required outputs must finish before the effective deadline. A late return is a failed run even when the artifact was written.
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -23,8 +23,11 @@ struct ReportBridge {
     /// Serializes the required slot so a host fallback cannot replace a model write.
     slot: Mutex<()>,
     opened_sources: std::sync::Mutex<BTreeSet<String>>,
-    /// Unopened source ids from the latest non-empty keyword index. Empty hits do not clear it.
-    pending_hits: std::sync::Mutex<BTreeSet<String>>,
+    /// Unopened sources from the latest non-empty keyword index.
+    /// The paragraph, when present, is the index the first open must cover. Empty hits do not clear this map.
+    pending_hits: std::sync::Mutex<BTreeMap<String, Option<u64>>>,
+    /// One successful keyword index with a non-empty keyword and no source id.
+    keyword_probed: AtomicBool,
 }
 
 enum Settle {
@@ -140,8 +143,9 @@ impl ReportBridge {
             .as_str()
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
+        let keyword = args["keyword"].as_str().unwrap_or("").trim().to_owned();
         if id == "inquiry.article_source" && self.output_slot == "analysis" {
-            self.admit_synthesis_read(source_id.as_deref())?;
+            self.admit_synthesis_read(&args)?;
         }
         if !(id == "artifact.write" && args["slot"] == self.output_slot) {
             let result = match metadata {
@@ -158,13 +162,19 @@ impl ReportBridge {
                         .lock()
                         .expect("pending hits")
                         .remove(&source_id);
-                } else if let Some(ids) = keyword_hit_ids(&result)
-                    && !ids.is_empty()
-                {
-                    let opened = self.opened_sources.lock().expect("opened sources");
-                    let pending = ids.into_iter().filter(|id| !opened.contains(id)).collect();
-                    drop(opened);
-                    *self.pending_hits.lock().expect("pending hits") = pending;
+                } else if !keyword.is_empty() {
+                    self.keyword_probed.store(true, Ordering::Release);
+                    if let Some(ids) = keyword_hit_ids(&result)
+                        && !ids.is_empty()
+                    {
+                        let opened = self.opened_sources.lock().expect("opened sources");
+                        let pending = ids
+                            .into_iter()
+                            .filter(|(id, _)| !opened.contains(id))
+                            .collect();
+                        drop(opened);
+                        *self.pending_hits.lock().expect("pending hits") = pending;
+                    }
                 }
             }
             return Ok(result);
@@ -181,7 +191,7 @@ impl ReportBridge {
         Ok(result)
     }
 
-    fn admit_synthesis_read(&self, source_id: Option<&str>) -> Result<()> {
+    fn admit_synthesis_read(&self, args: &Value) -> Result<()> {
         let reserved = self
             .inner
             .budget_hint()
@@ -191,7 +201,7 @@ impl ReportBridge {
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
             ));
         }
-        let Some(source_id) = source_id else {
+        let Some(source_id) = args["source_id"].as_str().filter(|value| !value.is_empty()) else {
             return Ok(());
         };
         let opened = self.opened_sources.lock().expect("opened sources");
@@ -200,23 +210,37 @@ impl ReportBridge {
                 "该来源已经读过，请改读尚未打开的已保存来源；不要把未读来源写成缺口",
             ));
         }
+        if !self.keyword_probed.load(Ordering::Acquire) {
+            return Err(fault(
+                "请先做一次不带来源编号、且关键词非空的来源索引，再打开来源页。不带关键词的完整索引不算",
+            ));
+        }
         let pending = self.pending_hits.lock().expect("pending hits");
         if !pending.is_empty()
-            && !pending.contains(source_id)
+            && !pending.contains_key(source_id)
             && opened.len() < SYNTHESIS_SOURCE_READS as usize
         {
             return Err(pending_refusal(&pending));
         }
-        if opened.len() >= SYNTHESIS_SOURCE_READS as usize {
+        let required = pending.get(source_id).copied().flatten();
+        let at_cap = opened.len() >= SYNTHESIS_SOURCE_READS as usize;
+        drop(pending);
+        drop(opened);
+        if at_cap {
             return Err(fault(
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
             ));
+        }
+        if let Some(paragraph) = required
+            && !page_covers(args, paragraph)
+        {
+            return Err(paragraph_refusal(source_id, paragraph));
         }
         Ok(())
     }
 }
 
-fn keyword_hit_ids(value: &Value) -> Option<BTreeSet<String>> {
+fn keyword_hit_ids(value: &Value) -> Option<BTreeMap<String, Option<u64>>> {
     let body = if value.get("hits").is_some() {
         value
     } else if value
@@ -228,21 +252,43 @@ fn keyword_hit_ids(value: &Value) -> Option<BTreeSet<String>> {
         return None;
     };
     let hits = body.get("hits")?.as_array()?;
-    let mut ids = BTreeSet::new();
+    let mut ids = BTreeMap::new();
     for hit in hits {
         if let Some(id) = hit
             .get("source_id")
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
         {
-            ids.insert(id.to_owned());
+            let paragraph = hit.get("paragraph").and_then(Value::as_u64);
+            ids.entry(id.to_owned()).or_insert(paragraph);
         }
     }
     Some(ids)
 }
 
-fn pending_refusal(pending: &BTreeSet<String>) -> Error {
-    let shown: Vec<&str> = pending.iter().map(String::as_str).take(8).collect();
+fn page_covers(args: &Value, paragraph: u64) -> bool {
+    if args["keyword"]
+        .as_str()
+        .is_some_and(|keyword| !keyword.trim().is_empty())
+    {
+        return false;
+    }
+    let start = args["start"].as_u64().unwrap_or(0);
+    let limit = args["limit"].as_u64().unwrap_or(5);
+    if !(1..=8).contains(&limit) {
+        return false;
+    }
+    start <= paragraph && paragraph < start.saturating_add(limit)
+}
+
+fn paragraph_refusal(source_id: &str, paragraph: u64) -> Error {
+    fault(format!(
+        "请打开 {source_id} 的第 {paragraph} 段：不要加页内关键词，并且本次 start 到 start+limit 必须包含该段（limit 为 1 到 8，省略时为 5）。未盖住该段不算已经读过"
+    ))
+}
+
+fn pending_refusal(pending: &BTreeMap<String, Option<u64>>) -> Error {
+    let shown: Vec<&str> = pending.keys().map(String::as_str).take(8).collect();
     let mut list = shown.join("、");
     if pending.len() > shown.len() {
         list.push_str(&format!("等{}个", pending.len()));
@@ -378,7 +424,8 @@ impl ReviseGuard {
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
             opened_sources: std::sync::Mutex::new(BTreeSet::new()),
-            pending_hits: std::sync::Mutex::new(BTreeSet::new()),
+            pending_hits: std::sync::Mutex::new(BTreeMap::new()),
+            keyword_probed: AtomicBool::new(false),
         });
         let child = cancel.child_token();
         let executor = Arc::clone(&self.0);
@@ -616,7 +663,8 @@ mod tests {
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
             opened_sources: std::sync::Mutex::new(BTreeSet::new()),
-            pending_hits: std::sync::Mutex::new(BTreeSet::new()),
+            pending_hits: std::sync::Mutex::new(BTreeMap::new()),
+            keyword_probed: AtomicBool::new(false),
         }
     }
 
@@ -929,6 +977,7 @@ mod tests {
     struct PagingSynthesis {
         stop_at_cap: bool,
         refuse_immediately: bool,
+        index_first: bool,
         write: Option<Value>,
     }
     #[async_trait]
@@ -947,6 +996,12 @@ mod tests {
             } else {
                 SYNTHESIS_SOURCE_READS + 1
             };
+            if self.index_first {
+                tools
+                    .call("inquiry.article_source", json!({"keyword": "probe"}))
+                    .await
+                    .expect("keyword index before pages");
+            }
             for index in 0..attempts {
                 let result = tools
                     .call(
@@ -1013,6 +1068,7 @@ mod tests {
             PagingSynthesis {
                 stop_at_cap: true,
                 refuse_immediately: false,
+                index_first: true,
                 write: Some(saved_analysis()),
             },
         )
@@ -1023,7 +1079,7 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert_eq!(reads, SYNTHESIS_SOURCE_READS);
+        assert_eq!(reads, SYNTHESIS_SOURCE_READS + 1);
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0]["value"]["decision"], "ready");
         assert_eq!(writes[0]["value"]["evidence"][0]["quote"], "已读原句");
@@ -1044,6 +1100,7 @@ mod tests {
             PagingSynthesis {
                 stop_at_cap: false,
                 refuse_immediately: true,
+                index_first: false,
                 write: Some(saved_analysis()),
             },
         )
@@ -1066,6 +1123,7 @@ mod tests {
             PagingSynthesis {
                 stop_at_cap: false,
                 refuse_immediately: false,
+                index_first: false,
                 write: None,
             },
         )
@@ -1087,6 +1145,10 @@ mod tests {
             tools: Arc<dyn ToolBridge>,
             _: CancellationToken,
         ) -> ExecutionOutcome {
+            tools
+                .call("inquiry.article_source", json!({"keyword": "probe"}))
+                .await
+                .expect("a keyword index must precede source pages");
             tools
                 .call("inquiry.article_source", json!({"source_id": "r1s1"}))
                 .await
@@ -1153,7 +1215,7 @@ mod tests {
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
         assert_eq!(
             tools.reads.load(Ordering::Acquire),
-            4 + SYNTHESIS_SOURCE_READS
+            5 + SYNTHESIS_SOURCE_READS
         );
         assert!(tools.writes.lock().await.is_empty());
     }
@@ -1291,5 +1353,183 @@ mod tests {
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
         assert_eq!(tools.reads.load(Ordering::Acquire), 3);
         assert_eq!(tools.keyword_calls.load(Ordering::Acquire), 3);
+    }
+
+    struct ParagraphTools {
+        reads: AtomicU32,
+        keyword_calls: AtomicU32,
+    }
+    #[async_trait]
+    impl ToolBridge for ParagraphTools {
+        fn specs(&self) -> Vec<ToolSpec> {
+            Vec::new()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            Some(GoalRunContext {
+                goal_id: "guard".into(),
+                plan_digest: None,
+                role: GoalRunRole::NodeMember {
+                    node_id: "synthesize".into(),
+                    member_id: "writer".into(),
+                },
+                evaluation_id: None,
+                epoch: 1,
+            })
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            None
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            Some(BudgetHint {
+                limit: 80,
+                used: 1,
+                remaining: 79,
+                read_remaining: 0,
+                submission_reserve: 2,
+                remaining_ms: 400_000,
+                mode: "explore".into(),
+            })
+        }
+        async fn reject_json_candidate(&self, _: u64, _: ToolCallMetadata) -> Result<Value> {
+            Ok(json!({}))
+        }
+        async fn call(&self, id: &str, args: Value) -> Result<Value> {
+            if id != "inquiry.article_source" {
+                return Err(fault("测试桥不接受该工具"));
+            }
+            if args["source_id"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .is_none()
+            {
+                self.keyword_calls.fetch_add(1, Ordering::Release);
+                let keyword = args["keyword"].as_str().unwrap_or("").trim();
+                if keyword.is_empty() {
+                    return Ok(json!({"sources": []}));
+                }
+                if keyword == "trigram" {
+                    return Ok(
+                        json!({"result": {"hits": [{"source_id": "r1s3", "paragraph": 25}]}}),
+                    );
+                }
+                return Ok(json!({"result": {"hits": []}}));
+            }
+            self.reads.fetch_add(1, Ordering::Release);
+            Ok(json!({"ok": true}))
+        }
+    }
+
+    struct CoverParagraph;
+    #[async_trait]
+    impl Executor for CoverParagraph {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            let early = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s3"}))
+                .await
+                .expect_err("a page before any keyword index must wait");
+            assert!(early.to_string().contains("完整索引不算"));
+            tools
+                .call("inquiry.article_source", json!({}))
+                .await
+                .unwrap();
+            let after_full = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s3"}))
+                .await
+                .expect_err("a full index must not satisfy the keyword probe");
+            assert!(after_full.to_string().contains("完整索引不算"));
+            tools
+                .call("inquiry.article_source", json!({"keyword": "none"}))
+                .await
+                .unwrap();
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s9"}))
+                .await
+                .expect("empty hits unlock a page when nothing is pending");
+            tools
+                .call("inquiry.article_source", json!({"keyword": "trigram"}))
+                .await
+                .unwrap();
+            let other = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .expect_err("a source outside the hit must wait");
+            assert!(other.to_string().contains("请先打开"));
+            assert!(other.to_string().contains("r1s3"));
+            let filtered = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s3", "keyword": "benchmark", "start": 25, "limit": 1}),
+                )
+                .await
+                .expect_err("an in-page keyword must not hide the indexed paragraph");
+            assert!(filtered.to_string().contains("r1s3"));
+            assert!(filtered.to_string().contains("25"));
+            let window = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s3", "start": 0, "limit": 5}),
+                )
+                .await
+                .expect_err("the default window does not cover paragraph 25");
+            assert!(window.to_string().contains("25"));
+            tools
+                .call("inquiry.article_source", json!({"keyword": "missing"}))
+                .await
+                .unwrap();
+            let still = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .expect_err("an empty keyword result must not clear the hit");
+            assert!(still.to_string().contains("请先打开"));
+            tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s3", "start": 25, "limit": 1}),
+                )
+                .await
+                .expect("a window that includes paragraph 25 reaches the tool");
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .expect("other sources open after the hit paragraph is covered");
+            let repeat = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s3", "start": 25, "limit": 1}),
+                )
+                .await
+                .expect_err("the covered source cannot be opened twice");
+            assert!(repeat.to_string().contains("尚未打开"));
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn keyword_index_precedes_pages_and_the_first_open_covers_the_hit_paragraph() {
+        let tools = Arc::new(ParagraphTools {
+            reads: AtomicU32::new(0),
+            keyword_calls: AtomicU32::new(0),
+        });
+        let outcome = ReviseGuard(Arc::new(CoverParagraph))
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(tools.reads.load(Ordering::Acquire), 3);
+        assert_eq!(tools.keyword_calls.load(Ordering::Acquire), 4);
     }
 }
