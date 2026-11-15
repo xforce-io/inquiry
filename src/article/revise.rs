@@ -23,6 +23,8 @@ struct ReportBridge {
     /// Serializes the required slot so a host fallback cannot replace a model write.
     slot: Mutex<()>,
     opened_sources: std::sync::Mutex<BTreeSet<String>>,
+    /// Unopened source ids from the latest non-empty keyword index. Empty hits do not clear it.
+    pending_hits: std::sync::Mutex<BTreeSet<String>>,
 }
 
 enum Settle {
@@ -146,14 +148,24 @@ impl ReportBridge {
                 Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
                 None => self.inner.call(id, args).await?,
             };
-            if id == "inquiry.article_source"
-                && self.output_slot == "analysis"
-                && let Some(source_id) = source_id
-            {
-                self.opened_sources
-                    .lock()
-                    .expect("opened sources")
-                    .insert(source_id);
+            if id == "inquiry.article_source" && self.output_slot == "analysis" {
+                if let Some(source_id) = source_id {
+                    self.opened_sources
+                        .lock()
+                        .expect("opened sources")
+                        .insert(source_id.clone());
+                    self.pending_hits
+                        .lock()
+                        .expect("pending hits")
+                        .remove(&source_id);
+                } else if let Some(ids) = keyword_hit_ids(&result)
+                    && !ids.is_empty()
+                {
+                    let opened = self.opened_sources.lock().expect("opened sources");
+                    let pending = ids.into_iter().filter(|id| !opened.contains(id)).collect();
+                    drop(opened);
+                    *self.pending_hits.lock().expect("pending hits") = pending;
+                }
             }
             return Ok(result);
         }
@@ -188,6 +200,13 @@ impl ReportBridge {
                 "该来源已经读过，请改读尚未打开的已保存来源；不要把未读来源写成缺口",
             ));
         }
+        let pending = self.pending_hits.lock().expect("pending hits");
+        if !pending.is_empty()
+            && !pending.contains(source_id)
+            && opened.len() < SYNTHESIS_SOURCE_READS as usize
+        {
+            return Err(pending_refusal(&pending));
+        }
         if opened.len() >= SYNTHESIS_SOURCE_READS as usize {
             return Err(fault(
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
@@ -195,6 +214,42 @@ impl ReportBridge {
         }
         Ok(())
     }
+}
+
+fn keyword_hit_ids(value: &Value) -> Option<BTreeSet<String>> {
+    let body = if value.get("hits").is_some() {
+        value
+    } else if value
+        .get("result")
+        .is_some_and(|result| result.get("hits").is_some())
+    {
+        &value["result"]
+    } else {
+        return None;
+    };
+    let hits = body.get("hits")?.as_array()?;
+    let mut ids = BTreeSet::new();
+    for hit in hits {
+        if let Some(id) = hit
+            .get("source_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
+            ids.insert(id.to_owned());
+        }
+    }
+    Some(ids)
+}
+
+fn pending_refusal(pending: &BTreeSet<String>) -> Error {
+    let shown: Vec<&str> = pending.iter().map(String::as_str).take(8).collect();
+    let mut list = shown.join("、");
+    if pending.len() > shown.len() {
+        list.push_str(&format!("等{}个", pending.len()));
+    }
+    fault(format!(
+        "关键词索引已经指出尚未打开的来源，请先打开它们：{list}。不要先读索引未指出的来源"
+    ))
 }
 
 fn output_slot(tools: &Arc<dyn ToolBridge>) -> Option<&'static str> {
@@ -323,6 +378,7 @@ impl ReviseGuard {
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
             opened_sources: std::sync::Mutex::new(BTreeSet::new()),
+            pending_hits: std::sync::Mutex::new(BTreeSet::new()),
         });
         let child = cancel.child_token();
         let executor = Arc::clone(&self.0);
@@ -560,6 +616,7 @@ mod tests {
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
             opened_sources: std::sync::Mutex::new(BTreeSet::new()),
+            pending_hits: std::sync::Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -1099,5 +1156,140 @@ mod tests {
             4 + SYNTHESIS_SOURCE_READS
         );
         assert!(tools.writes.lock().await.is_empty());
+    }
+
+    struct HitTools {
+        reads: AtomicU32,
+        keyword_calls: AtomicU32,
+    }
+    #[async_trait]
+    impl ToolBridge for HitTools {
+        fn specs(&self) -> Vec<ToolSpec> {
+            Vec::new()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            Some(GoalRunContext {
+                goal_id: "guard".into(),
+                plan_digest: None,
+                role: GoalRunRole::NodeMember {
+                    node_id: "synthesize".into(),
+                    member_id: "writer".into(),
+                },
+                evaluation_id: None,
+                epoch: 1,
+            })
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            None
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            Some(BudgetHint {
+                limit: 80,
+                used: 1,
+                remaining: 79,
+                read_remaining: 0,
+                submission_reserve: 2,
+                remaining_ms: 400_000,
+                mode: "explore".into(),
+            })
+        }
+        async fn reject_json_candidate(&self, _: u64, _: ToolCallMetadata) -> Result<Value> {
+            Ok(json!({}))
+        }
+        async fn call(&self, id: &str, args: Value) -> Result<Value> {
+            if id != "inquiry.article_source" {
+                return Err(fault("测试桥不接受该工具"));
+            }
+            if args["source_id"]
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .is_none()
+            {
+                self.keyword_calls.fetch_add(1, Ordering::Release);
+                if args.get("keyword").is_none() {
+                    return Ok(json!({"sources": []}));
+                }
+                let hits = if args["keyword"] == "trigram" {
+                    json!([{"source_id": "r1s16"}, {"source_id": "r1s17"}])
+                } else {
+                    json!([])
+                };
+                return Ok(json!({"result": {"hits": hits}}));
+            }
+            self.reads.fetch_add(1, Ordering::Release);
+            Ok(json!({"ok": true}))
+        }
+    }
+
+    struct KeywordFirst;
+    #[async_trait]
+    impl Executor for KeywordFirst {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            tools
+                .call("inquiry.article_source", json!({"keyword": "trigram"}))
+                .await
+                .unwrap();
+            tools
+                .call("inquiry.article_source", json!({}))
+                .await
+                .unwrap();
+            let blocked = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .expect_err("a source outside the keyword hits must wait");
+            assert!(blocked.to_string().contains("请先打开"));
+            assert!(blocked.to_string().contains("r1s16"));
+            tools
+                .call("inquiry.article_source", json!({"keyword": "missing"}))
+                .await
+                .unwrap();
+            let still = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .expect_err("an empty keyword result must not clear the hits");
+            assert!(still.to_string().contains("请先打开"));
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s16"}))
+                .await
+                .unwrap();
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s17"}))
+                .await
+                .unwrap();
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .unwrap();
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn keyword_hits_open_before_any_other_source_and_do_not_count() {
+        let tools = Arc::new(HitTools {
+            reads: AtomicU32::new(0),
+            keyword_calls: AtomicU32::new(0),
+        });
+        let outcome = ReviseGuard(Arc::new(KeywordFirst))
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(tools.reads.load(Ordering::Acquire), 3);
+        assert_eq!(tools.keyword_calls.load(Ordering::Acquire), 3);
     }
 }
