@@ -52,6 +52,29 @@ struct ConnectionFields {
 fn invalid(path: &str, message: &str) -> Error {
     Error::new("input_invalid", path, message)
 }
+fn admit_tier(
+    model: &str,
+    effort: Option<&str>,
+    codex_binary: bool,
+) -> Result<&'static crate::tier::Tier> {
+    // The higher tier's private launcher forces high. The file may say medium and is not rewritten.
+    if codex_binary && model == crate::tier::HIGHER.model {
+        return Ok(&crate::tier::HIGHER);
+    }
+    if let Some(tier) = effort.and_then(|effort| crate::tier::by_pair(model, effort)) {
+        return Ok(tier);
+    }
+    if crate::tier::model_known(model) && model == crate::tier::HIGHER.model {
+        return Err(invalid(
+            "/execution/native",
+            "未提供固定codex_binary时原生配置须显式high；所有模式均不允许覆盖profile",
+        ));
+    }
+    Err(invalid(
+        "/execution/connection",
+        "研究连接的模型与推理强度必须是已登记档位",
+    ))
+}
 fn read_bounded(path: &Path, max: u64) -> Result<Vec<u8>> {
     use std::io::Read;
     let file = std::fs::File::open(path)
@@ -97,15 +120,19 @@ fn absolute_directory(path: &Path) -> Result<PathBuf> {
     Ok(real)
 }
 #[cfg(unix)]
-fn install_codex_launcher(data: &Path, binary: &Path) -> Result<(PathBuf, Vec<u8>)> {
+fn install_codex_launcher(data: &Path, binary: &Path, effort: &str) -> Result<(PathBuf, Vec<u8>)> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    if effort != crate::tier::HIGHER.effort && effort != crate::tier::ROUTINE.effort {
+        return Err(invalid("/execution/codex", "启动器只注入已登记推理强度"));
+    }
     let binary = binary
         .to_str()
         .ok_or_else(|| invalid("/execution/codex", "原生路径须为有效UTF-8"))?;
     let quoted = format!("'{}'", binary.replace('\'', "'\"'\"'"));
-    let script = format!("#!/bin/sh\nexec {quoted} -c 'model_reasoning_effort=\"high\"' \"$@\"\n")
-        .into_bytes();
+    let script =
+        format!("#!/bin/sh\nexec {quoted} -c 'model_reasoning_effort=\"{effort}\"' \"$@\"\n")
+            .into_bytes();
     let directory = data.join(format!("codex-launcher-{}", crate::domain::hash(&script)));
     match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
         Ok(()) => {}
@@ -150,7 +177,7 @@ fn install_codex_launcher(data: &Path, binary: &Path) -> Result<(PathBuf, Vec<u8
     Ok((directory, script))
 }
 #[cfg(not(unix))]
-fn install_codex_launcher(_: &Path, _: &Path) -> Result<(PathBuf, Vec<u8>)> {
+fn install_codex_launcher(_: &Path, _: &Path, _: &str) -> Result<(PathBuf, Vec<u8>)> {
     Err(invalid(
         "/execution/codex",
         "显式原生启动器当前仅支持Unix平台",
@@ -220,15 +247,13 @@ impl ExecutionSetup {
         if conn.contract_version != 1
             || conn.fields.transport != "agent-cli"
             || conn.fields.runtime != "codex"
-            || conn.fields.model != "gpt-6.1-sol"
         {
             return Err(invalid(
                 "/execution/connection",
-                "研究固定使用gpt-6.1-sol及原生Codex，不回退模型或执行器",
+                "研究连接必须显式指定原生Codex及已登记模型",
             ));
         }
-        // Either require the explicit native default or enforce high in our private launcher.
-        // Never edit the user's shared native configuration.
+        // Never edit the connection file or the dedicated native configuration.
         let native = read_bounded(&absolute_file(&config_dir.join("config.toml"))?, 1_048_576)?;
         let settings: toml::Value = std::str::from_utf8(&native)
             .ok()
@@ -239,18 +264,16 @@ impl ExecutionSetup {
                     "专用原生配置不是有效TOML；未输出配置内容",
                 )
             })?;
-        if (codex_binary.is_none()
-            && settings
-                .get("model_reasoning_effort")
-                .and_then(toml::Value::as_str)
-                != Some("high"))
-            || settings.get("profile").is_some()
-        {
-            return Err(invalid(
-                "/execution/native",
-                "未提供固定codex_binary时原生配置须显式high；所有模式均不允许覆盖profile",
-            ));
+        if settings.get("profile").is_some() {
+            return Err(invalid("/execution/native", "所有模式均不允许覆盖profile"));
         }
+        let admitted = admit_tier(
+            &conn.fields.model,
+            settings
+                .get("model_reasoning_effort")
+                .and_then(toml::Value::as_str),
+            codex_binary.is_some(),
+        )?;
         std::fs::create_dir_all(data)?;
         let data = data.canonicalize()?;
         // Neither an ancestor nor descendant can be allowed to double as framework storage.
@@ -282,7 +305,7 @@ impl ExecutionSetup {
         )?
         .args([cli.as_os_str()]);
         let launcher = if let Some(binary) = codex_binary {
-            let (directory, script) = install_codex_launcher(&data, &binary)?;
+            let (directory, script) = install_codex_launcher(&data, &binary, admitted.effort)?;
             let inherited_path = std::env::var_os("PATH").unwrap_or_default();
             let search = [
                 directory,

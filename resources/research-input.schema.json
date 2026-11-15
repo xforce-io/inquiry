@@ -21,6 +21,10 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4000
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": ["ordinary", "hard"]
     }
   },
   "required": [

@@ -12,7 +12,12 @@
 
 ## 配置与原生失败/停止边界
 
-- `cargo test --locked --offline --test execution_config`：显式路径/原生high/固定模型、无配置内容回显、非法策略不装配；通过仅表示配置可用，不表示已登录。
+- `cargo test --locked --offline --test execution_config`：显式路径、已登记两档（`gpt-6.1-sol/high` 与 `gpt-6-astra/medium`）、无配置内容回显、未登记模型 `grok-4.7` 与未登记推理强度被拒绝且文件不改写、非法策略不装配；通过仅表示配置可用，不表示已登录。
+- `cargo test --locked --offline --test tier_binding`：真实研究 Playbook 经 `domain::bindings` 运行。分析与另一工作状态解析到两个不同的已登记模型 id；较低档状态在 `difficulty=hard` 时改为较高档，普通事实保持较低档；分析预算 80、另一工作状态 40；TaskLoop 流程定义拒绝难易字段和模型字段。
+
+## 模型档位（Issue #11 S1–S4，Issue #12 S1–S3）
+
+标准：`docs/design/11-state-model-tiers/product.md` v0.1 的 S1.A1–S4.A1，以及 `docs/design/12-task-difficulty-tier/product.md` v0.1 的 S1.A1–S3.A1。上面两条测试是本文件对应这些验收的可执行路径。网页研究创建仍走文章编排；该路径不因 `difficulty` 改档。配置或登录缺失时，真实模型步骤记 blocked，不把测试通过写成已登录。
 - `MILKIE_NODE=<固定Node> MILKIE_CLI=<固定Milkie构建> INQUIRY_NATIVE_CODEX_DIR=<Codex0.166.0所在目录> cargo test --locked --offline --test native_milkie -- --ignored --nocapture`：实际生产启动器/Sidecar/原生Codex连接本机401端点，核对high、失败元数据Trace、第二请求取消/隔离及SIGTERM退出。仅模拟凭据与拒绝端点，无真实模型成功；不得代替S1报告与S2同一真实研究关联。
 
 ## #7 现有登录与固定high接入

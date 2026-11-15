@@ -194,6 +194,89 @@ fn explicit_native_binary_enforces_high_without_mutating_shared_configuration() 
 }
 
 #[test]
+fn registered_tiers_load_and_unregistered_model_or_effort_is_rejected() {
+    let higher = ConfigFixture::new();
+    let higher_conn = higher.root.path().join("connection.json");
+    let higher_native = higher.root.path().join("native-config/config.toml");
+    let higher_conn_before = std::fs::read(&higher_conn).unwrap();
+    let higher_native_before = std::fs::read(&higher_native).unwrap();
+    assert!(
+        std::str::from_utf8(&higher_conn_before)
+            .unwrap()
+            .contains("gpt-6.1-sol")
+    );
+    assert!(
+        std::str::from_utf8(&higher_native_before)
+            .unwrap()
+            .contains("high")
+    );
+    higher.load().unwrap();
+    assert_eq!(std::fs::read(&higher_conn).unwrap(), higher_conn_before);
+    assert_eq!(std::fs::read(&higher_native).unwrap(), higher_native_before);
+
+    let routine = ConfigFixture::new();
+    let routine_conn = routine.root.path().join("connection.json");
+    let routine_native = routine.root.path().join("native-config/config.toml");
+    std::fs::write(
+        &routine_conn,
+        br#"{"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"gpt-6-astra"}}"#,
+    )
+    .unwrap();
+    std::fs::write(&routine_native, "model_reasoning_effort = \"medium\"\n").unwrap();
+    let routine_conn_before = std::fs::read(&routine_conn).unwrap();
+    let routine_native_before = std::fs::read(&routine_native).unwrap();
+    routine.load().unwrap();
+    assert_eq!(std::fs::read(&routine_conn).unwrap(), routine_conn_before);
+    assert_eq!(
+        std::fs::read(&routine_native).unwrap(),
+        routine_native_before
+    );
+
+    let unregistered_model = ConfigFixture::new();
+    let model_conn = unregistered_model.root.path().join("connection.json");
+    let model_native = unregistered_model
+        .root
+        .path()
+        .join("native-config/config.toml");
+    std::fs::write(
+        &model_conn,
+        br#"{"contractVersion":1,"fields":{"transport":"agent-cli","runtime":"codex","model":"grok-4.7"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &model_native,
+        "model_reasoning_effort = \"high\"\napi_key = \"CONFIG-SECRET\"\n",
+    )
+    .unwrap();
+    let model_conn_before = std::fs::read(&model_conn).unwrap();
+    let model_native_before = std::fs::read(&model_native).unwrap();
+    let model_error = unregistered_model.error();
+    assert_eq!(model_error.path, "/execution/connection");
+    assert!(!model_error.to_string().contains("CONFIG-SECRET"));
+    assert_eq!(std::fs::read(&model_conn).unwrap(), model_conn_before);
+    assert_eq!(std::fs::read(&model_native).unwrap(), model_native_before);
+
+    let unregistered_effort = ConfigFixture::new();
+    let effort_conn = unregistered_effort.root.path().join("connection.json");
+    let effort_native = unregistered_effort
+        .root
+        .path()
+        .join("native-config/config.toml");
+    std::fs::write(
+        &effort_native,
+        "model_reasoning_effort = \"max\"\napi_key = \"CONFIG-SECRET\"\n",
+    )
+    .unwrap();
+    let effort_conn_before = std::fs::read(&effort_conn).unwrap();
+    let effort_native_before = std::fs::read(&effort_native).unwrap();
+    let effort_error = unregistered_effort.error();
+    assert_eq!(effort_error.path, "/execution/native");
+    assert!(!effort_error.to_string().contains("CONFIG-SECRET"));
+    assert_eq!(std::fs::read(&effort_conn).unwrap(), effort_conn_before);
+    assert_eq!(std::fs::read(&effort_native).unwrap(), effort_native_before);
+}
+
+#[test]
 fn shared_login_requires_explicit_binary_and_the_existing_native_sessions() {
     let mut f = ConfigFixture::new();
     f.value["reuse_native_login"] = json!(true);

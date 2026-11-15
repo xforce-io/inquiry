@@ -749,9 +749,14 @@ pub fn bindings(d: &Definition, executor: Arc<dyn Executor>) -> HostBindings {
         Arc::new(Fetch),
         Arc::new(ReadSource),
     ];
-    let mut b = HostBindings::default()
-        .configuration_version("inquiry@0.1.0")
-        .executor("research.agent", executor);
+    let mut ids = BTreeSet::from(["research.agent".to_string()]);
+    for entry in d.bundle.entries.values() {
+        ids.insert(entry.executor.clone());
+    }
+    let mut b = HostBindings::default().configuration_version("inquiry@0.1.0");
+    for id in ids {
+        b = b.executor(id, executor.clone());
+    }
     for state in [
         "scope",
         "discover",
