@@ -357,7 +357,7 @@ pub fn registry(
         }
         if id == "article-analysis" {
             instruction.push_str(&format!(
-                " After {} successful inquiry.article_source calls the host refuses further source reads on synthesis. Stop paging and submit the analysis from paragraphs already read.",
+                " Synthesis may open {} distinct saved sources. A source index call does not count, and reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. Unmeasured local results are limitations, not gaps.",
                 article::revise::SYNTHESIS_SOURCE_READS
             ));
         }

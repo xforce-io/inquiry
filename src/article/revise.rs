@@ -1,6 +1,7 @@
 //! Required outputs must finish before the effective deadline. A late return is a failed run even when the artifact was written.
 use super::*;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -8,7 +9,7 @@ use tokio::sync::Mutex;
 pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
 /// Stop the model and, if it has not submitted, keep an accepted draft or an honest gap before that cap.
 pub const REVISE_HOST_RESERVE_MS: u64 = 25_000;
-/// Two corpus indexes plus targeted pages. Further reads are refused so synthesis can still submit.
+/// Distinct saved sources synthesis may open. Repeats and source indexes do not consume this.
 pub const SYNTHESIS_SOURCE_READS: u32 = 16;
 
 pub struct ReviseGuard(pub Arc<dyn Executor>);
@@ -21,7 +22,7 @@ struct ReportBridge {
     host_written: AtomicBool,
     /// Serializes the required slot so a host fallback cannot replace a model write.
     slot: Mutex<()>,
-    source_reads: AtomicU32,
+    opened_sources: std::sync::Mutex<BTreeSet<String>>,
 }
 
 enum Settle {
@@ -133,16 +134,26 @@ impl ReportBridge {
         args: Value,
         metadata: Option<ToolCallMetadata>,
     ) -> Result<Value> {
+        let source_id = args["source_id"]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
         if id == "inquiry.article_source" && self.output_slot == "analysis" {
-            self.admit_synthesis_read()?;
+            self.admit_synthesis_read(source_id.as_deref())?;
         }
         if !(id == "artifact.write" && args["slot"] == self.output_slot) {
             let result = match metadata {
                 Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
                 None => self.inner.call(id, args).await?,
             };
-            if id == "inquiry.article_source" && self.output_slot == "analysis" {
-                self.source_reads.fetch_add(1, Ordering::Release);
+            if id == "inquiry.article_source"
+                && self.output_slot == "analysis"
+                && let Some(source_id) = source_id
+            {
+                self.opened_sources
+                    .lock()
+                    .expect("opened sources")
+                    .insert(source_id);
             }
             return Ok(result);
         }
@@ -158,12 +169,26 @@ impl ReportBridge {
         Ok(result)
     }
 
-    fn admit_synthesis_read(&self) -> Result<()> {
+    fn admit_synthesis_read(&self, source_id: Option<&str>) -> Result<()> {
         let reserved = self
             .inner
             .budget_hint()
             .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
-        if reserved || self.source_reads.load(Ordering::Acquire) >= SYNTHESIS_SOURCE_READS {
+        if reserved {
+            return Err(fault(
+                "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
+            ));
+        }
+        let Some(source_id) = source_id else {
+            return Ok(());
+        };
+        let opened = self.opened_sources.lock().expect("opened sources");
+        if opened.contains(source_id) {
+            return Err(fault(
+                "该来源已经读过，请改读尚未打开的已保存来源；不要把未读来源写成缺口",
+            ));
+        }
+        if opened.len() >= SYNTHESIS_SOURCE_READS as usize {
             return Err(fault(
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
             ));
@@ -297,7 +322,7 @@ impl ReviseGuard {
             report_written: AtomicBool::new(false),
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
-            source_reads: AtomicU32::new(0),
+            opened_sources: std::sync::Mutex::new(BTreeSet::new()),
         });
         let child = cancel.child_token();
         let executor = Arc::clone(&self.0);
@@ -406,6 +431,7 @@ impl Executor for ReviseGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU32;
 
     #[test]
     fn accepted_draft_keeps_existing_citations() {
@@ -533,7 +559,7 @@ mod tests {
             report_written: AtomicBool::new(false),
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
-            source_reads: AtomicU32::new(0),
+            opened_sources: std::sync::Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -866,7 +892,10 @@ mod tests {
             };
             for index in 0..attempts {
                 let result = tools
-                    .call("inquiry.article_source", json!({"start": index}))
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": format!("r1s{}", index + 1), "start": 0}),
+                    )
                     .await;
                 let refused = self.refuse_immediately
                     || (self.stop_at_cap && index == SYNTHESIS_SOURCE_READS);
@@ -987,5 +1016,84 @@ mod tests {
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
         assert_eq!(reads, SYNTHESIS_SOURCE_READS + 1);
         assert!(writes.is_empty());
+    }
+
+    struct Breadth;
+    #[async_trait]
+    impl Executor for Breadth {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s1"}))
+                .await
+                .unwrap();
+            let repeated = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s1", "start": 8}),
+                )
+                .await
+                .expect_err("an opened source must yield");
+            assert!(repeated.to_string().contains("尚未打开的已保存来源"));
+            tools
+                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                .await
+                .unwrap();
+            for _ in 0..3 {
+                tools
+                    .call("inquiry.article_source", json!({}))
+                    .await
+                    .unwrap();
+            }
+            for index in 3..=SYNTHESIS_SOURCE_READS {
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": format!("r1s{index}")}),
+                    )
+                    .await
+                    .unwrap();
+            }
+            let full = tools
+                .call("inquiry.article_source", json!({"source_id": "r1s99"}))
+                .await
+                .expect_err("the next distinct source must stop");
+            assert!(full.to_string().contains("请立刻根据已读段落提交分析"));
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn synthesis_repeat_read_yields_to_an_unopened_source_and_indexes_are_free() {
+        let tools = Arc::new(SlotTools {
+            node: "synthesize",
+            remaining_ms: 400_000,
+            draft_text: None,
+            writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
+        });
+        let outcome = ReviseGuard(Arc::new(Breadth))
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(
+            tools.reads.load(Ordering::Acquire),
+            3 + SYNTHESIS_SOURCE_READS
+        );
+        assert!(tools.writes.lock().await.is_empty());
     }
 }
