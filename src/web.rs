@@ -186,6 +186,7 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
             &Caller::local(),
         )
         .await?;
+    println!("研究: http://127.0.0.1:{}/research/{id}", host.port);
     Ok(Json(json!({"id":id})))
 }
 async fn health() -> Json<Value> {
