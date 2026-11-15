@@ -357,7 +357,7 @@ pub fn registry(
         }
         if id == "article-analysis" {
             instruction.push_str(&format!(
-                " Synthesis may open {} distinct saved sources. A source index call does not count, and reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. Unmeasured local results are limitations, not gaps.",
+                " Synthesis may open {} distinct saved sources. A source index call does not count. A keyword with no source_id lists matching saved sources and does not count; probe decisive public terms that way and open those source ids first. Reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. Unmeasured local results are limitations, not gaps.",
                 article::revise::SYNTHESIS_SOURCE_READS
             ));
         }

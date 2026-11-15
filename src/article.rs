@@ -547,9 +547,48 @@ impl DomainTool for FetchSource {
 const SOURCE_PAGE_MAX: usize = 8;
 const SOURCE_PAGE_DEFAULT: usize = 5;
 const SOURCE_PARAGRAPH_CHARS: usize = 4000;
+const INDEX_HITS: usize = 20;
+const INDEX_EXCERPT_CHARS: usize = 180;
 fn source_read_limits() -> Value {
     json!({"max_paragraphs":SOURCE_PAGE_MAX,"default_paragraphs":SOURCE_PAGE_DEFAULT,"max_chars_per_paragraph":SOURCE_PARAGRAPH_CHARS})
 }
+struct IndexHits {
+    hits: Vec<Value>,
+    omitted: usize,
+}
+
+fn keyword_index_hits(sources: &[Source], keyword: &str) -> IndexHits {
+    let key = keyword.to_lowercase();
+    let mut hits = Vec::new();
+    let mut omitted = 0;
+    for source in sources {
+        if source.fact["usable"] != true {
+            continue;
+        }
+        let Some((idx, paragraph)) = source
+            .paragraphs
+            .iter()
+            .enumerate()
+            .find(|(_, paragraph)| paragraph.to_lowercase().contains(&key))
+        else {
+            continue;
+        };
+        if hits.len() == INDEX_HITS {
+            omitted += 1;
+            continue;
+        }
+        let excerpt: String = paragraph.chars().take(INDEX_EXCERPT_CHARS).collect();
+        hits.push(json!({
+            "source_id": source.source_id,
+            "paragraph": idx,
+            "excerpt": excerpt,
+            "title": source.fact["title"].clone(),
+            "final_url": source.fact["final_url"].clone(),
+        }));
+    }
+    IndexHits { hits, omitted }
+}
+
 fn source_paragraph_page(
     source: &Source,
     keyword: &str,
@@ -571,7 +610,7 @@ pub struct ReadSource;
 #[async_trait]
 impl DomainTool for ReadSource {
     fn spec(&self) -> ToolSpec {
-        ToolSpec { id: "inquiry.article_source".into(), description: "Read exact saved paragraphs. Omit source_id for the source index and a valid read_example. Per call limit is 1..8 (default5), NOT total_paragraphs; larger limits are rejected. Filter by keyword and follow next_start for another page. Use exact package id/hash, source_id and zero-based paragraph for citations.".into(),
+        ToolSpec { id: "inquiry.article_source".into(), description: "Read exact saved paragraphs. Omit source_id for the source index and a valid read_example. A keyword with no source_id returns one short exact excerpt per matching saved source and does not open that source. Per call limit is 1..8 (default5), NOT total_paragraphs; larger limits are rejected. Filter by keyword and follow next_start for another page. Use exact package id/hash, source_id and zero-based paragraph for citations.".into(),
             input_schema: json!({"type":"object","properties":{"artifact_id":{"type":"string"},"source_id":{"type":"string"},"keyword":{"type":"string","maxLength":200},"start":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":SOURCE_PAGE_MAX,"description":"Paragraph count for this call: 1..8, default5. Never pass total_paragraphs; use next_start for another page."}},"required":["artifact_id"],"additionalProperties":false}) }
     }
     async fn call(&self, c: ToolContext, args: Value) -> Result<ToolOutput> {
@@ -583,9 +622,22 @@ impl DomainTool for ReadSource {
             .iter()
             .find(|a| a.reference.id == id && a.reference.slot == "corpus")
             .ok_or_else(|| fault("资料包未被当前阶段授权"))?;
-        let Some(source_id) = args["source_id"].as_str() else {
+        let Some(source_id) = args["source_id"].as_str().filter(|value| !value.is_empty()) else {
             let package = corpus(artifact)?;
             let example=package.sources.iter().find(|s|s.fact["usable"]==true).map(|s|json!({"artifact_id":id,"source_id":s.source_id,"start":0,"limit":SOURCE_PAGE_DEFAULT}));
+            let keyword = args["keyword"].as_str().unwrap_or("").trim();
+            if !keyword.is_empty() {
+                let found = keyword_index_hits(&package.sources, keyword);
+                return Ok(ToolOutput::json(json!({
+                    "artifact_id": id,
+                    "sha256": artifact.reference.sha256,
+                    "keyword": keyword,
+                    "hits": found.hits,
+                    "omitted": found.omitted,
+                    "read_limits": source_read_limits(),
+                    "read_example": example,
+                })));
+            }
             return Ok(ToolOutput::json(
                 json!({"artifact_id":id,"sha256":artifact.reference.sha256,"sources":package.sources.iter().map(|s| json!({"source_id":s.source_id,"origin":s.origin,"fact":s.fact,"paragraphs":s.paragraphs.len()})).collect::<Vec<_>>(),"limitations":package.limitations,"read_limits":source_read_limits(),"read_example":example}),
             ));
@@ -677,6 +729,40 @@ mod tests {
             ]
         );
     }
+    #[test]
+    fn keyword_index_points_at_one_saved_paragraph_and_skips_the_rest() {
+        let matched = "默认分词器按空格切，CJK 连续串成一个 token。".repeat(8);
+        let sources = vec![
+            Source {
+                source_id: "r1s4".into(),
+                origin: "search".into(),
+                fact: json!({"usable": true, "title": "bench", "final_url": "https://example.com/bench"}),
+                paragraphs: vec!["intro".into(), matched.clone()],
+            },
+            Source {
+                source_id: "r1s5".into(),
+                origin: "search".into(),
+                fact: json!({"usable": true, "title": "other", "final_url": "https://example.com/other"}),
+                paragraphs: vec!["no term here".into()],
+            },
+            Source {
+                source_id: "r1s19".into(),
+                origin: "search".into(),
+                fact: json!({"usable": false, "title": "", "final_url": "https://example.com/denied"}),
+                paragraphs: vec!["CJK 连续串".into()],
+            },
+        ];
+        let found = keyword_index_hits(&sources, "CJK");
+        assert_eq!(found.omitted, 0);
+        assert_eq!(found.hits.len(), 1);
+        assert_eq!(found.hits[0]["source_id"], "r1s4");
+        assert_eq!(found.hits[0]["paragraph"], 1);
+        let excerpt = found.hits[0]["excerpt"].as_str().unwrap();
+        assert!(excerpt.chars().count() <= INDEX_EXCERPT_CHARS);
+        assert!(matched.starts_with(excerpt));
+        assert!(keyword_index_hits(&sources, "不存在的词").hits.is_empty());
+    }
+
     #[test]
     fn saved_paragraph_limit_is_character_based_and_explicit() {
         let (saved, truncated) = trim_paragraphs(&[json!("中".repeat(21000)), json!("later")]);
