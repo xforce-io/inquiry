@@ -1,0 +1,30 @@
+{
+  "mapping_sha256": "99a73bbb1578ec32c192f7fc0a1cbc43eb4dc9962db4091742f82f974190b9c1",
+  "scores": {
+    "a": {
+      "baseline-1": 95,
+      "baseline-3": 97,
+      "inquiry": 93,
+      "baseline-2": 96
+    },
+    "b": {
+      "baseline-1": 94,
+      "baseline-3": 95,
+      "inquiry": 93,
+      "baseline-2": 96
+    }
+  },
+  "means": {
+    "baseline-1": 94.5,
+    "baseline-3": 96.0,
+    "inquiry": 93.0,
+    "baseline-2": 96.0
+  },
+  "best_baseline": 96.0,
+  "inquiry_minus_best": -3.0,
+  "minimum_inquiry": 85,
+  "required_margin": 15,
+  "status": "fail",
+  "unresolved_checks_remain": true,
+  "not_a_general_sota_claim": true
+}

@@ -1,0 +1,28 @@
+[package]
+name = "inquiry"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91.1"
+publish = false
+
+[dependencies]
+taskloop = { git = "https://github.com/xforce-io/taskloop.git", rev = "6a2483aa101d7f73f49f842d44db19286a9d01bc" }
+async-trait = "0.1"
+base64 = "0.22"
+flate2 = "1.1"
+axum = "0.8"
+chrono = "0.4"
+scraper = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tower-http = { version = "0.6", features = ["fs"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+toml = "=0.9.8"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

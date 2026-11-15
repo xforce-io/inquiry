@@ -1,0 +1,192 @@
+{
+  "baseline-1": {
+    "started_utc": "2026-11-03T12:14:07.170614+00:00",
+    "runner_sha256": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "model_requested": "gpt-6-astra",
+    "effort_requested": "max",
+    "cli_version": "codex-cli 0.166.0",
+    "prompt_sha256": "784df5ea1c102cc0a89b61c2ed54aac2e1557a38e84401fbe7fa9908cf95f6ba",
+    "tools": [],
+    "provider_fallback": false,
+    "status": "completed",
+    "model_calls": 1,
+    "output_schema_sha256": null,
+    "effort_configured": "max",
+    "effort_evidence_scope": "Configured effort confirmed; not provider per-token reasoning telemetry.",
+    "report_sha256": "40578b026c08b71f1170b735b71ef7c35f7a1ae559b8373b76a089804d7df9b0",
+    "finished_utc": "2026-11-03T12:22:03.509130+00:00",
+    "model_actual": "gpt-6-astra",
+    "usage": {
+      "total": {
+        "totalTokens": 28562,
+        "inputTokens": 8961,
+        "cachedInputTokens": 4736,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 19601,
+        "reasoningOutputTokens": 15741
+      },
+      "last": {
+        "totalTokens": 28562,
+        "inputTokens": 8961,
+        "cachedInputTokens": 4736,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 19601,
+        "reasoningOutputTokens": 15741
+      },
+      "modelContextWindow": 258400
+    },
+    "elapsed_seconds": 476.3382960000308
+  },
+  "baseline-2": {
+    "started_utc": "2026-11-03T12:14:07.171161+00:00",
+    "runner_sha256": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "model_requested": "gpt-6-astra",
+    "effort_requested": "max",
+    "cli_version": "codex-cli 0.166.0",
+    "prompt_sha256": "784df5ea1c102cc0a89b61c2ed54aac2e1557a38e84401fbe7fa9908cf95f6ba",
+    "tools": [],
+    "provider_fallback": false,
+    "status": "completed",
+    "model_calls": 1,
+    "output_schema_sha256": null,
+    "effort_configured": "max",
+    "effort_evidence_scope": "Configured effort confirmed; not provider per-token reasoning telemetry.",
+    "report_sha256": "0f2bb402a0c53e180e201c781969c5893cbe4bbe2c06974dad36ad42edd8ec84",
+    "finished_utc": "2026-11-03T12:21:07.263963+00:00",
+    "model_actual": "gpt-6-astra",
+    "usage": {
+      "total": {
+        "totalTokens": 25840,
+        "inputTokens": 8961,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 16879,
+        "reasoningOutputTokens": 12821
+      },
+      "last": {
+        "totalTokens": 25840,
+        "inputTokens": 8961,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 16879,
+        "reasoningOutputTokens": 12821
+      },
+      "modelContextWindow": 258400
+    },
+    "elapsed_seconds": 420.0927866669954
+  },
+  "baseline-3": {
+    "started_utc": "2026-11-03T12:14:07.169971+00:00",
+    "runner_sha256": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "model_requested": "gpt-6-astra",
+    "effort_requested": "max",
+    "cli_version": "codex-cli 0.166.0",
+    "prompt_sha256": "784df5ea1c102cc0a89b61c2ed54aac2e1557a38e84401fbe7fa9908cf95f6ba",
+    "tools": [],
+    "provider_fallback": false,
+    "status": "completed",
+    "model_calls": 1,
+    "output_schema_sha256": null,
+    "effort_configured": "max",
+    "effort_evidence_scope": "Configured effort confirmed; not provider per-token reasoning telemetry.",
+    "report_sha256": "37a34b6b443f192c48ffd6074eb9a5ee9005fe10574e445a4d8c9b57ebe33713",
+    "finished_utc": "2026-11-03T12:21:30.995314+00:00",
+    "model_actual": "gpt-6-astra",
+    "usage": {
+      "total": {
+        "totalTokens": 26463,
+        "inputTokens": 8961,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 17502,
+        "reasoningOutputTokens": 13466
+      },
+      "last": {
+        "totalTokens": 26463,
+        "inputTokens": 8961,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 17502,
+        "reasoningOutputTokens": 13466
+      },
+      "modelContextWindow": 258400
+    },
+    "elapsed_seconds": 443.8251121659996
+  },
+  "judge-a": {
+    "started_utc": "2026-11-03T12:30:14.372646+00:00",
+    "runner_sha256": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "model_requested": "gpt-6-astra",
+    "effort_requested": "max",
+    "cli_version": "codex-cli 0.166.0",
+    "prompt_sha256": "66fb3229dcff089016b5de80a58e200e1d54697fec96063c96b36cae49deff6f",
+    "tools": [],
+    "provider_fallback": false,
+    "status": "completed",
+    "model_calls": 1,
+    "output_schema_sha256": "174ad92dc97946599709dcaced693bfb6fddcdb02bc59a80f8552fa46b95e3a4",
+    "effort_configured": "max",
+    "effort_evidence_scope": "Configured effort confirmed; not provider per-token reasoning telemetry.",
+    "report_sha256": "5b2297f048812fe691b454fe28f18fb7782a320a1ee4926cbcab14d4499448cf",
+    "finished_utc": "2026-11-03T12:39:00.693472+00:00",
+    "model_actual": "gpt-6-astra",
+    "usage": {
+      "total": {
+        "totalTokens": 93978,
+        "inputTokens": 71662,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 22316,
+        "reasoningOutputTokens": 17610
+      },
+      "last": {
+        "totalTokens": 93978,
+        "inputTokens": 71662,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 22316,
+        "reasoningOutputTokens": 17610
+      },
+      "modelContextWindow": 258400
+    },
+    "elapsed_seconds": 526.3199383330066
+  },
+  "judge-b": {
+    "started_utc": "2026-11-03T12:30:14.373142+00:00",
+    "runner_sha256": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "model_requested": "gpt-6.1-sol",
+    "effort_requested": "high",
+    "cli_version": "codex-cli 0.166.0",
+    "prompt_sha256": "ae5f23160bc21d419d8c6b1712f5bf48d25101587191eaafa52d5caf0c6d59d0",
+    "tools": [],
+    "provider_fallback": false,
+    "status": "completed",
+    "model_calls": 1,
+    "output_schema_sha256": "174ad92dc97946599709dcaced693bfb6fddcdb02bc59a80f8552fa46b95e3a4",
+    "effort_configured": "high",
+    "effort_evidence_scope": "Configured effort confirmed; not provider per-token reasoning telemetry.",
+    "report_sha256": "7ad48fc4ab5249eb6f7da313e9c086ace2808e81ba73098caa9777be1174007d",
+    "finished_utc": "2026-11-03T12:33:30.817087+00:00",
+    "model_actual": "gpt-6.1-sol",
+    "usage": {
+      "total": {
+        "totalTokens": 81228,
+        "inputTokens": 71662,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 9566,
+        "reasoningOutputTokens": 4532
+      },
+      "last": {
+        "totalTokens": 81228,
+        "inputTokens": 71662,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0,
+        "outputTokens": 9566,
+        "reasoningOutputTokens": 4532
+      },
+      "modelContextWindow": 475000
+    },
+    "elapsed_seconds": 196.44488149997778
+  }
+}

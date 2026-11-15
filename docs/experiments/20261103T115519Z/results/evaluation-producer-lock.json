@@ -1,0 +1,12 @@
+{
+  "locked_utc": "2026-11-03T12:05:05.364253+00:00",
+  "files": {
+    "no_tool_report.py": "dd7a4a5c8437b6a1aaa89ce0638f4d7ffcafa896073dbfd640ec13b6742a2146",
+    "judge-output.schema.json": "174ad92dc97946599709dcaced693bfb6fddcdb02bc59a80f8552fa46b95e3a4",
+    "judge-instruction.txt": "4a51d119c20ee2b592b79feec7d2517f41b01b4ed84c0d291fb228a7695150bb",
+    "build_blind_packet.py": "304a6587d08ff90f4e37c185b5c14fdd1c817e9b1b9696c99cb4242978759c72"
+  },
+  "source_context": "Up to12 paragraphs per document, each at most1800chars; first paragraphs, shared-topic keywords, and exact accepted citation locations; same neutral packet for both judges; missing excerpts never prove a claim false. Original full private sources retained.",
+  "reports_exist": false,
+  "baseline_or_judge_runs_started": false
+}

@@ -1,0 +1,20 @@
+{
+  "frozen_utc": "2026-11-03T07:23:25.149779+00:00",
+  "candidate_sha": "eaeecaffd83485658312142206fd12a99b804a5e",
+  "execution_id": "execution-93b8a108-bb4a-4b70-8999-9bf24d7113fa",
+  "artifact": {
+    "id": "execution-93b8a108-bb4a-4b70-8999-9bf24d7113fa:artifact-91b2e67f-f221-41bd-a2b0-c2b487265bed",
+    "sha256": "bf42a80abc9eaaa1c4256d99dc09c4b828bbcedfc4c323f4205d66719805b4b9",
+    "slot": "report",
+    "state_id": "report",
+    "visit": 1
+  },
+  "artifact_bytes_verified": true,
+  "prompt_sha256": "12e5934090db6241ef4243889943d6f6803eb75df674a2b4544b3c8259d11e6a",
+  "raw_export_sha256": "18140ffb493d32b6638b1bdaaf3b4cdaec6eb76fa8181d3799db8a95d80a7e97",
+  "conclusion_characters": 5772,
+  "cjk_characters": 3268,
+  "citations": 18,
+  "source_artifacts": 14,
+  "operator_assistance": "All20 URLs from earlier real discovery supplied via Web after search networking was denied; provenance retained in operator-supplement.json. No report edits."
+}

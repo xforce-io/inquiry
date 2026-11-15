@@ -1,0 +1,19 @@
+{
+  "frozen_utc": "2026-11-03T12:12:51.588694+00:00",
+  "candidate_sha": "aaa1ea6e8b8bf2bedac37fae39ff4e007f58d4ff",
+  "execution_id": "execution-b6bf69ff-4fbb-4bfa-aa40-8bd767096364",
+  "artifact": {
+    "id": "execution-b6bf69ff-4fbb-4bfa-aa40-8bd767096364:artifact-95704a96-5503-48c8-9a65-a7f187da84be",
+    "sha256": "c333eb5561e16224fa6f817ee9126320c8fa4582161413940df34f0e06b090c3",
+    "slot": "report",
+    "state_id": "report",
+    "visit": 1
+  },
+  "artifact_bytes_verified": true,
+  "prompt_sha256": "784df5ea1c102cc0a89b61c2ed54aac2e1557a38e84401fbe7fa9908cf95f6ba",
+  "conclusion_characters": 5834,
+  "cjk_characters": 3198,
+  "citations": 19,
+  "source_artifacts": 38,
+  "operator_assistance": "None in topic generation; any subsequent source supplement must be separately recorded."
+}

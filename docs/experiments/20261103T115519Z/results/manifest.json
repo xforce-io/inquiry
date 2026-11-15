@@ -1,0 +1,17 @@
+{
+  "baseline-1.md": "40578b026c08b71f1170b735b71ef7c35f7a1ae559b8373b76a089804d7df9b0",
+  "baseline-2.md": "0f2bb402a0c53e180e201c781969c5893cbe4bbe2c06974dad36ad42edd8ec84",
+  "baseline-3.md": "37a34b6b443f192c48ffd6074eb9a5ee9005fe10574e445a4d8c9b57ebe33713",
+  "blind-input-index.json": "adeebdfa4a2f78b3eed94fdd0d67f0b029d830ba9e450c0abc74187004a37900",
+  "citations.json": "aa25e8eb0f74379a1e443eb17cdac98ef5b61feb33fde74393bf441f226d467b",
+  "evaluation-producer-lock.json": "7f17e215dc15e1d366f7d50aabdce8d4eb3405889fa111e3a5aea55c2b3c1d20",
+  "inquiry.md": "dfa408fd71ead6d84bdfd34c6618dad26be487322c54945e1ca0012195888e50",
+  "judge-a.json": "5b2297f048812fe691b454fe28f18fb7782a320a1ee4926cbcab14d4499448cf",
+  "judge-b.json": "7ad48fc4ab5249eb6f7da313e9c086ace2808e81ba73098caa9777be1174007d",
+  "mapping.json": "57ea4889d1af8c50fed36f97865ee460fca602584a76d7a1fc4973d2f57d6996",
+  "model-runs.json": "07a1c60ddeee3863deab6945b69c22ae77970a58c0759bb993b31ba5ec977621",
+  "preparation-failures.json": "69360f7a81ea03430868bac9951c25c3e6bbe2176b37d446f17d215b3571546f",
+  "result.json": "15977f9978089dbfedc84f808ab29d3d7802619822d8c70c054c61089e2f0acb",
+  "run-ledger.json": "19e056c9eb04e732d81c2801750586f31439449ed0d0cc63cad5e65c2e49ff87",
+  "source-audit-summary.json": "27b88347de3de017bc679942cc644439a225f80f210aef56dd7b2f1e32457c46"
+}

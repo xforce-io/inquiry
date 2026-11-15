@@ -1,0 +1,364 @@
+{
+  "model_calls": 0,
+  "audits": [
+    {
+      "run": {
+        "captured": 18,
+        "elapsed_seconds": 71.436535583,
+        "execution_id": "execution-22fb14bc-d497-4212-8be2-5566563f33c9",
+        "final_status": "failed",
+        "intentional_stop": "Never execute a model or produce a report",
+        "kind": "source-audit-no-model",
+        "model_calls": 0,
+        "requested": 20
+      },
+      "dispositions": [
+        {
+          "requested_url": "https://crates.io/crates/tantivy/0.22.0",
+          "final_url": "https://crates.io/crates/tantivy/0.22.0",
+          "http_status": 404,
+          "fetch_status": "unavailable",
+          "reason": "来源HTTP状态404，不能作为已获取证据",
+          "captured_at": "2026-11-03T12:24:43.148511+00:00",
+          "usable": false,
+          "truncated": false,
+          "normalized_sha256": null
+        },
+        {
+          "requested_url": "https://docs.rs/crate/tantivy/0.22.0",
+          "final_url": "https://docs.rs/crate/tantivy/0.22.0",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:44.243371+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "567e84f40a7a25ae74cb48db79ab76c834aa134e782db6c2e03bb1122c0a3427"
+        },
+        {
+          "requested_url": "https://docs.rs/tantivy/0.22.0/tantivy/",
+          "final_url": "https://docs.rs/tantivy/0.22.0/tantivy/",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:46.867682+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "b162f7f09024586a87345cdc2d160cf7a0898263c9db23d2c9432f8d8fadc957"
+        },
+        {
+          "requested_url": "https://docs.rs/tantivy/0.22.0/tantivy/struct.IndexReader.html",
+          "final_url": "https://docs.rs/tantivy/0.22.0/tantivy/struct.IndexReader.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:52.093424+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "1c037b6b1d3c11e2ada995a33300d96fcdeb7b9a39bc6e61bfd0111f553d2f17"
+        },
+        {
+          "requested_url": "https://docs.rs/tantivy/0.22.0/tantivy/struct.IndexWriter.html",
+          "final_url": "https://docs.rs/tantivy/0.22.0/tantivy/struct.IndexWriter.html",
+          "http_status": 404,
+          "fetch_status": "unavailable",
+          "reason": "来源HTTP状态404，不能作为已获取证据",
+          "captured_at": "2026-11-03T12:24:54.404689+00:00",
+          "usable": false,
+          "truncated": false,
+          "normalized_sha256": null
+        },
+        {
+          "requested_url": "https://docs.rs/tantivy/0.22.0/tantivy/tokenizer/index.html",
+          "final_url": "https://docs.rs/tantivy/0.22.0/tantivy/tokenizer/index.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:55.936510+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "cfff7ed3643a0dc2e20767540d402a9021a37791e3ce28f5492f5c2f0cca18eb"
+        },
+        {
+          "requested_url": "https://github.com/meilisearch/charabia",
+          "final_url": "https://github.com/meilisearch/charabia",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:57.581132+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "b3d387745ce9fa59e7500de8cfd3c4d45baa6e650358308dcfbf5dcbc67464b8"
+        },
+        {
+          "requested_url": "https://github.com/meilisearch/meilisearch/blob/v1.9.0/LICENSE",
+          "final_url": "https://github.com/meilisearch/meilisearch/blob/v1.9.0/LICENSE",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:00.068210+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "bfae009fe5d427aec4c9bafe364efe5eadafa78cdd71df2558ed72f5859b7244"
+        },
+        {
+          "requested_url": "https://github.com/meilisearch/meilisearch/tree/v1.8.0",
+          "final_url": "https://github.com/meilisearch/meilisearch/tree/v1.8.0",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:03.262784+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "e7cda02b684735b2bf7697878f93b39ad27183d7e2f81b2b9c53bae5b744b444"
+        },
+        {
+          "requested_url": "https://github.com/meilisearch/meilisearch/tree/v1.9.0",
+          "final_url": "https://github.com/meilisearch/meilisearch/tree/v1.9.0",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:05.940061+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "2288ae54869a679ca645a25456ba7a001b0bd5a08512489a168173e7a2a4899b"
+        },
+        {
+          "requested_url": "https://github.com/messense/jieba-rs",
+          "final_url": "https://github.com/messense/jieba-rs",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:09.368867+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "4972a4b7cbafbe5f1352655f508fe17c079695ffb59a0819b0887bcb918c50fa"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/advanced/asynchronous_operations",
+          "final_url": "https://www.meilisearch.com/docs/capabilities/indexing/advanced/indexing_best_practices",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:11.456206+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "94a58a000eed5a2e32657d9196eeabc52236eec17448a3ae16969bf5ab8cbbb8"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/async/asynchronous_operations",
+          "final_url": "https://www.meilisearch.com/docs/capabilities/indexing/tasks_and_batches/async_operations",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:22.584715+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "987757ca0bfa6f2a7817942115ce6ae8cb12c81a75528e645a218e5d7f78a97d"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/configuration/instance_options",
+          "final_url": "https://www.meilisearch.com/docs/resources/self_hosting/configuration/reference",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:26.090861+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "caaa17362501f21ed2f8d81c82200fdca5b1290190cd4ee896bbf471162625c5"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/data_backup/dumps",
+          "final_url": "https://www.meilisearch.com/docs/resources/self_hosting/data_backup/dumps",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:29.320830+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "9257f6228479b9138cc13132fd08fc2aaeecf9821e144f99f844742f4bc8aa88"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/data_backup/snapshots",
+          "final_url": "https://www.meilisearch.com/docs/resources/self_hosting/data_backup/snapshots",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:33.221681+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "39fa71aab6888245218d2d72e70fd4b7fdc58572bda59d3aa5a474a2b5539cee"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/relevancy/ranking_rules",
+          "final_url": "https://www.meilisearch.com/docs/capabilities/full_text_search/relevancy/ranking_rules",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:37.024293+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "29e96a456b6f02fa287337b9707e3194e242f1f8a509a9dc207bc305d5407e2c"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/relevancy/typo_tolerance",
+          "final_url": "https://www.meilisearch.com/docs/capabilities/full_text_search/relevancy/typo_tolerance_settings",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:40.732307+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "a8a146c9095b551dda11af41f9fc220bab91e6be6935e396fc9fefb20140d686"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/resources/language",
+          "final_url": "https://www.meilisearch.com/docs/resources/help/language",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:44.303239+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "ecc3981270d4b1edf3c35432c5f9cf64eb4b708f98534e01bfd6d5522ff3e29b"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/security/basic_security",
+          "final_url": "https://www.meilisearch.com/docs/resources/self_hosting/security/basic_security",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:47.237064+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "656943beefec1a37f240b20ad8660aa4d79c8d8d2df0a9719f70f25fdc2ccfe1"
+        }
+      ]
+    },
+    {
+      "run": {
+        "captured": 10,
+        "elapsed_seconds": 32.149540792,
+        "execution_id": "execution-199115cf-56c3-4706-9faa-7a38539dce63",
+        "final_status": "failed",
+        "intentional_stop": "Never execute a model or produce a report",
+        "kind": "source-audit-no-model",
+        "model_calls": 0,
+        "requested": 10
+      },
+      "dispositions": [
+        {
+          "requested_url": "https://www.meilisearch.com/docs/learn/self_hosted/configure_meilisearch_at_launch",
+          "final_url": "https://www.meilisearch.com/docs/resources/self_hosting/configuration/overview",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:43.128657+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "f96c9e05ecbcbbe3107123a9c6ac36232a4b7437a1b01e7a37e75a05ea7d8dd5"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/reference/api/documents",
+          "final_url": "https://www.meilisearch.com/docs/reference/api/documents/list-documents-with-get",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:51.583385+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "ccac80191954536df8437fed63eee2d43fbb4899638b45148d8157601a9f44f8"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/reference/api/dumps",
+          "final_url": "https://www.meilisearch.com/docs/reference/api/backups/create-dump",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:55.113245+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "2e28d27d441851bf644eb652b79baa8784e066d2e046147ae6c3042a8e608140"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/reference/api/snapshots",
+          "final_url": "https://www.meilisearch.com/docs/reference/api/backups/create-snapshot",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:24:59.116819+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "6c7ced7a11052d3b2da8a9d656a1a18824e76da3d7696b7cf900b33ac6a3cd71"
+        },
+        {
+          "requested_url": "https://www.meilisearch.com/docs/reference/api/tasks",
+          "final_url": "https://www.meilisearch.com/docs/reference/api/async-task-management/list-tasks",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:02.796460+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "9e03a485f4576f0d8f02a28d8fac73762aff9c651c3258260a6c7522d461335a"
+        },
+        {
+          "requested_url": "https://www.sqlite.org/backup.html",
+          "final_url": "https://www.sqlite.org/backup.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:06.494424+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "31e3929005902ce8b2d3e2b3779826cf63fabe779794944d68d985a2642a6c6a"
+        },
+        {
+          "requested_url": "https://www.sqlite.org/copyright.html",
+          "final_url": "https://www.sqlite.org/copyright.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:07.863659+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "7857fd435752042bd323f1f32e75dd42ffe8fa0ab46b9cb662e18722e91e1f3d"
+        },
+        {
+          "requested_url": "https://www.sqlite.org/pragma.html",
+          "final_url": "https://www.sqlite.org/pragma.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:08.999844+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "34c765555fcca1dfe4d8c4913588f956cc95988c05caae20b177025b761c65fa"
+        },
+        {
+          "requested_url": "https://www.sqlite.org/releaselog/3_45_3.html",
+          "final_url": "https://www.sqlite.org/releaselog/3_45_3.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:10.877427+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "67ed7caedd8f623ecf1e41a83085183f27ce4109285ddbf8cc638325afa029e7"
+        },
+        {
+          "requested_url": "https://www.sqlite.org/releaselog/3_46_0.html",
+          "final_url": "https://www.sqlite.org/releaselog/3_46_0.html",
+          "http_status": 200,
+          "fetch_status": "captured",
+          "reason": "公开网页已获取并保存",
+          "captured_at": "2026-11-03T12:25:12.131+00:00",
+          "usable": true,
+          "truncated": false,
+          "normalized_sha256": "76dfd85fa0101544ed32e96f2aa12cf1c2c1e857df99a87c27fec8a853f3babf"
+        }
+      ]
+    }
+  ],
+  "notes": "Public production acquisition/gates, deterministic source auditor; intentional stop before any model/report. 28 of30 additional references saved;2 unavailable not treated as forged. Original source pages remain private."
+}
