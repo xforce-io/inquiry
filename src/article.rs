@@ -2,6 +2,7 @@
 use async_trait::async_trait;
 mod archive;
 pub mod discovery;
+pub mod revise;
 pub use archive::ArchivedBody;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

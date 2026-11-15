@@ -18,6 +18,7 @@ pub fn limits() -> GoalLimits {
     }
 }
 pub fn bindings(agent: Arc<dyn Executor>, version: String) -> HostBindings {
+    let agent: Arc<dyn Executor> = Arc::new(article::revise::ReviseGuard(agent));
     let search = Arc::new(crate::domain::Search::default());
     let mut b = HostBindings::default()
         .configuration_version(version)
@@ -76,10 +77,10 @@ fn policy(id: &str, ms: u64, calls: u64) -> RunBudgetPolicy {
         max_check_ms: Some(2000),
         max_tool_calls: calls,
         submission_reserve: 2,
-        finalize_before_ms: if id == "article-initial-analysis" {
-            article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS
-        } else {
-            2000
+        finalize_before_ms: match id {
+            "article-initial-analysis" => article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS,
+            "article-revise" => article::revise::REVISE_FINALIZE_BEFORE_MS,
+            _ => 2000,
         },
         max_model_iterations: None,
         max_candidate_bytes: 4_194_304,
@@ -342,6 +343,9 @@ pub fn registry(
         };
         if id == "article-initial-analysis" {
             instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the analysis before the hard deadline. Submit evidence already read, or decision=need_input with empty evidence and honest gaps. Do not keep reading until the deadline.");
+        }
+        if id == "article-revise" {
+            instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the report before the hard deadline. If the review cannot be applied in time, write the existing draft report unchanged. Do not invent citations. Do not keep reading until the deadline.");
         }
         let ms = match (native, id) {
             (true, "article-scope") => 300000,
