@@ -1,6 +1,6 @@
 //! Required outputs must finish before the effective deadline. A late return is a failed run even when the artifact was written.
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
 /// Stop the model and, if it has not submitted, keep an accepted draft or an honest gap before that cap.
 pub const REVISE_HOST_RESERVE_MS: u64 = 25_000;
+/// Two corpus indexes plus targeted pages. Further reads are refused so synthesis can still submit.
+pub const SYNTHESIS_SOURCE_READS: u32 = 16;
 
 pub struct ReviseGuard(pub Arc<dyn Executor>);
 
@@ -19,6 +21,7 @@ struct ReportBridge {
     host_written: AtomicBool,
     /// Serializes the required slot so a host fallback cannot replace a model write.
     slot: Mutex<()>,
+    source_reads: AtomicU32,
 }
 
 enum Settle {
@@ -130,11 +133,18 @@ impl ReportBridge {
         args: Value,
         metadata: Option<ToolCallMetadata>,
     ) -> Result<Value> {
+        if id == "inquiry.article_source" && self.output_slot == "analysis" {
+            self.admit_synthesis_read()?;
+        }
         if !(id == "artifact.write" && args["slot"] == self.output_slot) {
-            return match metadata {
-                Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await,
-                None => self.inner.call(id, args).await,
+            let result = match metadata {
+                Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
+                None => self.inner.call(id, args).await?,
             };
+            if id == "inquiry.article_source" && self.output_slot == "analysis" {
+                self.source_reads.fetch_add(1, Ordering::Release);
+            }
+            return Ok(result);
         }
         let _guard = self.slot.lock().await;
         if self.host_written.load(Ordering::Acquire) {
@@ -146,6 +156,19 @@ impl ReportBridge {
         };
         self.report_written.store(true, Ordering::Release);
         Ok(result)
+    }
+
+    fn admit_synthesis_read(&self) -> Result<()> {
+        let reserved = self
+            .inner
+            .budget_hint()
+            .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
+        if reserved || self.source_reads.load(Ordering::Acquire) >= SYNTHESIS_SOURCE_READS {
+            return Err(fault(
+                "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -274,6 +297,7 @@ impl ReviseGuard {
             report_written: AtomicBool::new(false),
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
+            source_reads: AtomicU32::new(0),
         });
         let child = cancel.child_token();
         let executor = Arc::clone(&self.0);
@@ -509,6 +533,7 @@ mod tests {
             report_written: AtomicBool::new(false),
             host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
+            source_reads: AtomicU32::new(0),
         }
     }
 
@@ -563,6 +588,7 @@ mod tests {
         remaining_ms: u64,
         draft_text: Option<String>,
         writes: Mutex<Vec<Value>>,
+        reads: AtomicU32,
     }
     #[async_trait]
     impl ToolBridge for SlotTools {
@@ -605,6 +631,10 @@ mod tests {
                     Ok(json!({}))
                 }
                 "artifact.read" => Ok(json!({"text": self.draft_text.clone().unwrap_or_default()})),
+                "inquiry.article_source" => {
+                    self.reads.fetch_add(1, Ordering::Release);
+                    Ok(json!({"ok": true}))
+                }
                 _ => Err(fault("测试桥不接受该工具")),
             }
         }
@@ -674,6 +704,7 @@ mod tests {
             remaining_ms,
             draft_text: draft.as_ref().map(|value| value.to_string()),
             writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
         });
         let artifacts = if draft.is_some() {
             vec![ArtifactRef {
@@ -790,5 +821,171 @@ mod tests {
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0]["value"], draft);
         assert_eq!(writes[0]["value"]["citations"].as_array().unwrap().len(), 1);
+    }
+
+    fn saved_analysis() -> Value {
+        json!({
+            "slot": "analysis",
+            "value": {
+                "decision": "ready",
+                "evidence": [{
+                    "artifact_id": "artifact-1",
+                    "sha256": "abc",
+                    "source_id": "r2s7",
+                    "paragraph": 26,
+                    "quote": "已读原句"
+                }],
+                "judgments": [],
+                "gaps": [],
+                "coverage": [],
+                "search_queries": []
+            }
+        })
+    }
+
+    struct PagingSynthesis {
+        stop_at_cap: bool,
+        refuse_immediately: bool,
+        write: Option<Value>,
+    }
+    #[async_trait]
+    impl Executor for PagingSynthesis {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            let attempts = if self.refuse_immediately {
+                1
+            } else {
+                SYNTHESIS_SOURCE_READS + 1
+            };
+            for index in 0..attempts {
+                let result = tools
+                    .call("inquiry.article_source", json!({"start": index}))
+                    .await;
+                let refused = self.refuse_immediately
+                    || (self.stop_at_cap && index == SYNTHESIS_SOURCE_READS);
+                if refused {
+                    let err = result.expect_err("synthesis must refuse this source read");
+                    assert!(err.to_string().contains("请立刻根据已读段落提交分析"));
+                } else {
+                    result.expect("source read reaches the tool");
+                }
+            }
+            if let Some(args) = &self.write {
+                tools
+                    .call("artifact.write", args.clone())
+                    .await
+                    .expect("analysis write");
+                return ExecutionOutcome::Failed {
+                    code: "limit_reached".into(),
+                    message: "execution deadline exceeded".into(),
+                };
+            }
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    async fn page(
+        node: &'static str,
+        remaining_ms: u64,
+        paging: PagingSynthesis,
+    ) -> (ExecutionOutcome, Vec<Value>, u32) {
+        let tools = Arc::new(SlotTools {
+            node,
+            remaining_ms,
+            draft_text: None,
+            writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
+        });
+        let guard = ReviseGuard(Arc::new(paging));
+        let outcome = guard
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        let writes = tools.writes.lock().await.clone();
+        let reads = tools.reads.load(Ordering::Acquire);
+        (outcome, writes, reads)
+    }
+
+    #[tokio::test]
+    async fn synthesis_stops_after_sixteen_source_reads_and_keeps_the_analysis() {
+        let (outcome, writes, reads) = page(
+            "synthesize",
+            400_000,
+            PagingSynthesis {
+                stop_at_cap: true,
+                refuse_immediately: false,
+                write: Some(saved_analysis()),
+            },
+        )
+        .await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "report_written");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(reads, SYNTHESIS_SOURCE_READS);
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["value"]["decision"], "ready");
+        assert_eq!(writes[0]["value"]["evidence"][0]["quote"], "已读原句");
+        assert_eq!(writes[0]["value"]["evidence"][0]["source_id"], "r2s7");
+        assert!(
+            !writes[0]["value"]["evidence"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn synthesis_refuses_a_source_read_inside_the_finalize_window() {
+        let (outcome, writes, reads) = page(
+            "synthesize",
+            REVISE_FINALIZE_BEFORE_MS,
+            PagingSynthesis {
+                stop_at_cap: false,
+                refuse_immediately: true,
+                write: Some(saved_analysis()),
+            },
+        )
+        .await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "report_written");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(reads, 0);
+        assert_eq!(writes[0]["value"]["evidence"][0]["paragraph"], 26);
+    }
+
+    #[tokio::test]
+    async fn draft_source_reads_are_not_capped_at_the_synthesis_limit() {
+        let (outcome, writes, reads) = page(
+            "draft",
+            400_000,
+            PagingSynthesis {
+                stop_at_cap: false,
+                refuse_immediately: false,
+                write: None,
+            },
+        )
+        .await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(reads, SYNTHESIS_SOURCE_READS + 1);
+        assert!(writes.is_empty());
     }
 }

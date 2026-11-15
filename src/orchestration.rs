@@ -355,6 +355,12 @@ pub fn registry(
         ) {
             instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the required output before the hard deadline. For analysis, submit evidence already read or decision=need_input with empty evidence. For a report, do not invent citations; a revision may write the existing draft unchanged. Do not keep reading until the deadline.");
         }
+        if id == "article-analysis" {
+            instruction.push_str(&format!(
+                " After {} successful inquiry.article_source calls the host refuses further source reads on synthesis. Stop paging and submit the analysis from paragraphs already read.",
+                article::revise::SYNTHESIS_SOURCE_READS
+            ));
+        }
         let ms = match (native, id) {
             (true, "article-scope") => 300000,
             (true, "article-analysis") => 450000,
