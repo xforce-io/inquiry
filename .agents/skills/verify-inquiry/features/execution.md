@@ -12,7 +12,8 @@
 
 ## 配置与原生失败/停止边界
 
-- `cargo test --locked --offline --test execution_config`：显式路径、已登记两档（`gpt-6.1-sol/high` 与 `gpt-6-astra/medium`）、无配置内容回显、未登记模型 `grok-4.7` 与未登记推理强度被拒绝且文件不改写、非法策略不装配；通过仅表示配置可用，不表示已登录。
+- `cargo test --locked --offline --test execution_config`：显式路径、已登记两档（`gpt-6.1-sol/high` 与 `gpt-6-astra/medium`）、无配置内容回显、未登记模型 `grok-4.7` 与未登记推理强度被拒绝且文件不改写、`codex_binary` 加 `max` 或 `low` 同样拒绝且不安装启动器、`medium` 仍由启动器注入 `high`、非法策略不装配；通过仅表示配置可用，不表示已登录。
+- `cargo test --locked --offline --lib article::discovery::tests::initial_analysis_stops_paging_and_rejects_a_public_gap_without_a_search`：初次分析来源读取 8 次通过、第 9 次拒绝；其它节点不受该上限；有缺口且原生搜索回执为空时拒绝写入发现。不证明下一次真实研究已经搜到公开材料。
 - `cargo test --locked --offline --test tier_binding`：真实研究 Playbook 经 `domain::bindings` 运行。分析与另一工作状态解析到两个不同的已登记模型 id；较低档状态在 `difficulty=hard` 时改为较高档，普通事实保持较低档；分析预算 80、另一工作状态 40；TaskLoop 流程定义拒绝难易字段和模型字段。
 
 ## 阶段交卷（Issue #19 S1–S3）

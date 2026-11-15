@@ -277,6 +277,39 @@ fn registered_tiers_load_and_unregistered_model_or_effort_is_rejected() {
 }
 
 #[test]
+fn codex_binary_rejects_unregistered_higher_effort_without_rewriting_files() {
+    for effort in ["max", "low"] {
+        let mut f = ConfigFixture::new();
+        f.value["codex_binary"] = f.value["node"].clone();
+        let conn = f.root.path().join("connection.json");
+        let native = f.root.path().join("native-config/config.toml");
+        std::fs::write(
+            &native,
+            format!("model_reasoning_effort = \"{effort}\"\napi_key = \"CONFIG-SECRET\"\n"),
+        )
+        .unwrap();
+        let conn_before = std::fs::read(&conn).unwrap();
+        let native_before = std::fs::read(&native).unwrap();
+        let err = f.error();
+        assert_eq!(err.path, "/execution/native", "{effort}");
+        assert!(!err.to_string().contains("CONFIG-SECRET"));
+        assert!(!err.to_string().contains(effort));
+        assert_eq!(std::fs::read(&conn).unwrap(), conn_before);
+        assert_eq!(std::fs::read(&native).unwrap(), native_before);
+        let wrote_launcher = std::fs::read_dir(f.root.path().join("data"))
+            .unwrap()
+            .any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("codex-launcher-")
+            });
+        assert!(!wrote_launcher, "{effort}");
+    }
+}
+
+#[test]
 fn shared_login_requires_explicit_binary_and_the_existing_native_sessions() {
     let mut f = ConfigFixture::new();
     f.value["reuse_native_login"] = json!(true);

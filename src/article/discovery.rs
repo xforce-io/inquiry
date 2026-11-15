@@ -1,17 +1,21 @@
 //! Trusted projection of Milkie's public receipt; search snippets are never evidence.
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 /// Reads stop this long before the registered 300000 ms cap so one model turn can still submit.
 pub const INITIAL_ANALYSIS_FINALIZE_BEFORE_MS: u64 = 90_000;
 /// Stop the model and, if it has not submitted, write an honest need_input before that cap.
 pub const INITIAL_ANALYSIS_HOST_RESERVE_MS: u64 = 25_000;
+/// Page reads stop here so the same run can still search public gaps and submit.
+pub const INITIAL_ANALYSIS_SOURCE_READS: u32 = 8;
 
 pub struct DiscoveryExecutor(pub Arc<MilkieExecutor>);
 struct AgentBridge {
     inner: Arc<dyn ToolBridge>,
     analysis_written: AtomicBool,
+    source_reads: AtomicU32,
+    analysis: std::sync::Mutex<Option<Value>>,
 }
 fn allowed(id: &str, args: &Value) -> Result<()> {
     if id == "artifact.write" && args["slot"] == "discoveries" {
@@ -38,11 +42,10 @@ impl ToolBridge for AgentBridge {
     }
     async fn call(&self, id: &str, args: Value) -> Result<Value> {
         allowed(id, &args)?;
-        let wrote_analysis = id == "artifact.write" && args["slot"] == "analysis";
-        let result = self.inner.call(id, args).await?;
-        if wrote_analysis {
-            self.analysis_written.store(true, Ordering::Release);
-        }
+        self.admit_source_read(id)?;
+        let result = self.inner.call(id, args.clone()).await?;
+        self.note_source_read(id);
+        self.store_analysis(id, &args);
         Ok(result)
     }
     async fn call_with_metadata(
@@ -52,12 +55,58 @@ impl ToolBridge for AgentBridge {
         metadata: ToolCallMetadata,
     ) -> Result<Value> {
         allowed(id, &args)?;
-        let wrote_analysis = id == "artifact.write" && args["slot"] == "analysis";
-        let result = self.inner.call_with_metadata(id, args, metadata).await?;
-        if wrote_analysis {
+        self.admit_source_read(id)?;
+        let result = self
+            .inner
+            .call_with_metadata(id, args.clone(), metadata)
+            .await?;
+        self.note_source_read(id);
+        self.store_analysis(id, &args);
+        Ok(result)
+    }
+}
+impl AgentBridge {
+    fn on_initial_analysis(&self) -> bool {
+        matches!(
+            self.goal_context().as_ref().map(|context| &context.role),
+            Some(GoalRunRole::NodeMember { node_id, .. }) if node_id == "analyze"
+        )
+    }
+    fn admit_source_read(&self, id: &str) -> Result<()> {
+        if id != "inquiry.article_source" || !self.on_initial_analysis() {
+            return Ok(());
+        }
+        if self.source_reads.load(Ordering::Acquire) >= INITIAL_ANALYSIS_SOURCE_READS {
+            return Err(fault(
+                "初次分析的来源页已够判断缺口，请立刻原生搜索可公开补齐的缺口并提交分析",
+            ));
+        }
+        Ok(())
+    }
+    fn note_source_read(&self, id: &str) {
+        if id == "inquiry.article_source" && self.on_initial_analysis() {
+            self.source_reads.fetch_add(1, Ordering::Release);
+        }
+    }
+    fn store_analysis(&self, id: &str, args: &Value) {
+        if id == "artifact.write" && args["slot"] == "analysis" {
+            *self.analysis.lock().expect("analysis") = Some(args["value"].clone());
             self.analysis_written.store(true, Ordering::Release);
         }
-        Ok(result)
+    }
+    fn needs_follow_up_search(&self) -> bool {
+        let guard = self.analysis.lock().expect("analysis");
+        let Some(value) = guard.as_ref() else {
+            return false;
+        };
+        let gaps = value["gaps"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty());
+        let queries = value["search_queries"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty());
+        let ready = value["decision"] == "ready" && !gaps;
+        !ready || queries
     }
 }
 /// The adapter already checks receipt ownership. This boundary validates the domain projection.
@@ -142,6 +191,16 @@ pub fn project(page: &Value, require_search: bool) -> Result<Value> {
         json!({"provider":"codex-native","run_id":run,"context_id":context,"mode":"live","searches":searches}),
     )
 }
+fn reject_unsearched_gaps(discoveries: &Value, require_follow_up: bool) -> Result<()> {
+    let empty = discoveries["searches"]
+        .as_array()
+        .map(|items| items.is_empty())
+        .unwrap_or(true);
+    if require_follow_up && empty {
+        return Err(fault("初次分析仍有可公开补齐的缺口，但没有实际原生搜索"));
+    }
+    Ok(())
+}
 pub(crate) fn honest_need_input(subquestions: &[String]) -> Value {
     let questions = if subquestions.is_empty() {
         vec!["原始研究问题".to_owned()]
@@ -220,6 +279,7 @@ impl DiscoveryExecutor {
         cancel: &CancellationToken,
         require_search: bool,
         allow_empty: bool,
+        require_follow_up: bool,
     ) -> Result<()> {
         if !allow_empty {
             let page = self.0.native_web_searches(run).await?;
@@ -227,6 +287,7 @@ impl DiscoveryExecutor {
                 return Err(fault("搜索回执采集已取消"));
             }
             let value = project(&page, require_search)?;
+            reject_unsearched_gaps(&value, require_follow_up)?;
             tools
                 .call(
                     "artifact.write",
@@ -245,6 +306,7 @@ impl DiscoveryExecutor {
             return Err(fault("搜索回执采集已取消"));
         }
         let value = projected.unwrap_or_else(|| unfinished_discoveries(run));
+        reject_unsearched_gaps(&value, require_follow_up)?;
         tools
             .call(
                 "artifact.write",
@@ -329,6 +391,8 @@ impl Executor for DiscoveryExecutor {
         let bridge = Arc::new(AgentBridge {
             inner: tools.clone(),
             analysis_written: AtomicBool::new(false),
+            source_reads: AtomicU32::new(0),
+            analysis: std::sync::Mutex::new(None),
         });
         let child = cancel.child_token();
         let outcome = race_model_with_reserve(
@@ -369,8 +433,16 @@ impl Executor for DiscoveryExecutor {
         if !(matches!(outcome, ExecutionOutcome::Completed { .. }) || analyze && timed_out) {
             return outcome;
         }
+        let follow_up = analyze && bridge.needs_follow_up_search();
         let result = self
-            .write_discoveries(&run, &tools, &cancel, require_search, analyze && timed_out)
+            .write_discoveries(
+                &run,
+                &tools,
+                &cancel,
+                require_search,
+                analyze && timed_out && !follow_up,
+                follow_up,
+            )
             .await;
         match result {
             Ok(()) => {
@@ -474,5 +546,111 @@ mod tests {
                 .await;
         assert_eq!(outcome, "scope-unchanged");
         assert!(!child.is_cancelled());
+    }
+    struct ReadProbe {
+        node: &'static str,
+        reads: AtomicU32,
+    }
+    #[async_trait]
+    impl ToolBridge for ReadProbe {
+        fn specs(&self) -> Vec<ToolSpec> {
+            Vec::new()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            Some(GoalRunContext {
+                goal_id: "read-cap".into(),
+                plan_digest: None,
+                role: GoalRunRole::NodeMember {
+                    node_id: self.node.into(),
+                    member_id: "worker".into(),
+                },
+                evaluation_id: None,
+                epoch: 1,
+            })
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            None
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            None
+        }
+        async fn reject_json_candidate(&self, _: u64, _: ToolCallMetadata) -> Result<Value> {
+            Ok(json!({}))
+        }
+        async fn call(&self, id: &str, _: Value) -> Result<Value> {
+            if id == "inquiry.article_source" {
+                self.reads.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(json!({"ok": true}))
+        }
+    }
+    fn read_bridge(inner: Arc<ReadProbe>) -> AgentBridge {
+        AgentBridge {
+            inner,
+            analysis_written: AtomicBool::new(false),
+            source_reads: AtomicU32::new(0),
+            analysis: std::sync::Mutex::new(None),
+        }
+    }
+    #[tokio::test]
+    async fn initial_analysis_stops_paging_and_rejects_a_public_gap_without_a_search() {
+        let analyze = Arc::new(ReadProbe {
+            node: "analyze",
+            reads: AtomicU32::new(0),
+        });
+        let bridge = read_bridge(analyze.clone());
+        for _ in 0..INITIAL_ANALYSIS_SOURCE_READS {
+            bridge
+                .call("inquiry.article_source", json!({}))
+                .await
+                .unwrap();
+        }
+        let rejected = bridge
+            .call("inquiry.article_source", json!({}))
+            .await
+            .expect_err("the next source read must stop");
+        assert!(rejected.to_string().contains("请立刻原生搜索"));
+        assert_eq!(
+            analyze.reads.load(Ordering::Relaxed),
+            INITIAL_ANALYSIS_SOURCE_READS
+        );
+        let other = Arc::new(ReadProbe {
+            node: "synthesize",
+            reads: AtomicU32::new(0),
+        });
+        let other_bridge = read_bridge(other.clone());
+        for _ in 0..=INITIAL_ANALYSIS_SOURCE_READS {
+            other_bridge
+                .call("inquiry.article_source", json!({}))
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            other.reads.load(Ordering::Relaxed),
+            INITIAL_ANALYSIS_SOURCE_READS + 1
+        );
+        bridge
+            .call(
+                "artifact.write",
+                json!({"slot":"analysis","value":{"decision":"need_input","gaps":["公开机制未保存"],"evidence":[],"search_queries":[]}}),
+            )
+            .await
+            .unwrap();
+        assert!(bridge.needs_follow_up_search());
+        let mut bare = page();
+        bare["items"] = json!([]);
+        let empty = project(&bare, false).unwrap();
+        let missing = reject_unsearched_gaps(&empty, true).unwrap_err();
+        assert!(missing.to_string().contains("没有实际原生搜索"));
+        assert!(reject_unsearched_gaps(&empty, false).is_ok());
+        assert!(reject_unsearched_gaps(&project(&page(), false).unwrap(), true).is_ok());
+        bridge
+            .call(
+                "artifact.write",
+                json!({"slot":"analysis","value":{"decision":"ready","gaps":[],"evidence":[],"search_queries":[]}}),
+            )
+            .await
+            .unwrap();
+        assert!(!bridge.needs_follow_up_search());
     }
 }
