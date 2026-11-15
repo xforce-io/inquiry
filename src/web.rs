@@ -204,6 +204,10 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
                 &Caller::local(),
             )
             .await?;
+        println!(
+            "研究: http://127.0.0.1:{}/research/{}",
+            host.port, receipt.goal_id
+        );
         return Ok(Json(json!({"id":receipt.goal_id})));
     }
     let id = host
@@ -219,6 +223,7 @@ async fn start(State(host): State<Host>, Json(req): Json<Start>) -> ApiResult {
             &Caller::local(),
         )
         .await?;
+    println!("研究: http://127.0.0.1:{}/research/{id}", host.port);
     Ok(Json(json!({"id":id})))
 }
 async fn health(State(host): State<Host>) -> Json<Value> {
