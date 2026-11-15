@@ -1354,11 +1354,22 @@ async fn native_discovery_uses_round_receipts_and_fetches_without_http_search_fa
         .find(|r| r["entry_ref"] == "article-initial-analysis@1")
         .unwrap();
     assert_eq!(initial["budget"]["policy"]["max_run_ms"], 300000);
+    assert_eq!(
+        initial["budget"]["policy"]["finalize_before_ms"],
+        article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS
+    );
+    assert!(
+        initial["budget"]["policy"]["finalize_before_ms"]
+            .as_u64()
+            .unwrap()
+            < initial["budget"]["policy"]["max_run_ms"].as_u64().unwrap()
+    );
     let synthesis = runs
         .values()
         .find(|r| r["entry_ref"] == "article-analysis@1")
         .unwrap();
     assert_eq!(synthesis["budget"]["policy"]["max_run_ms"], 450000);
+    assert_eq!(synthesis["budget"]["policy"]["finalize_before_ms"], 2000);
     assert_eq!(view["goal"]["limits"]["max_wall_ms"], 1800000);
     let outputs = view["outputs"].as_array().unwrap();
     for (stage, run) in [

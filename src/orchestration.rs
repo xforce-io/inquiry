@@ -76,7 +76,11 @@ fn policy(id: &str, ms: u64, calls: u64) -> RunBudgetPolicy {
         max_check_ms: Some(2000),
         max_tool_calls: calls,
         submission_reserve: 2,
-        finalize_before_ms: 2000,
+        finalize_before_ms: if id == "article-initial-analysis" {
+            article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS
+        } else {
+            2000
+        },
         max_model_iterations: None,
         max_candidate_bytes: 4_194_304,
     }
@@ -331,11 +335,14 @@ pub fn registry(
         if native && id == "article-scope" {
             outputs.push(("discoveries", "article-discoveries"));
         }
-        let instruction = if discovery {
+        let mut instruction = if discovery {
             format!("{instruction}{discovery_instruction}")
         } else {
             instruction.to_owned()
         };
+        if id == "article-initial-analysis" {
+            instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the analysis before the hard deadline. Submit evidence already read, or decision=need_input with empty evidence and honest gaps. Do not keep reading until the deadline.");
+        }
         let ms = match (native, id) {
             (true, "article-scope") => 300000,
             (true, "article-analysis") => 450000,
