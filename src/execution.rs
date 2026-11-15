@@ -57,8 +57,11 @@ fn admit_tier(
     effort: Option<&str>,
     codex_binary: bool,
 ) -> Result<&'static crate::tier::Tier> {
-    // The higher tier's private launcher forces high. The file may say medium and is not rewritten.
-    if codex_binary && model == crate::tier::HIGHER.model {
+    // The only higher-tier override: the file says medium, the launcher injects high, and the file is not rewritten.
+    if codex_binary
+        && model == crate::tier::HIGHER.model
+        && effort == Some(crate::tier::ROUTINE.effort)
+    {
         return Ok(&crate::tier::HIGHER);
     }
     if let Some(tier) = effort.and_then(|effort| crate::tier::by_pair(model, effort)) {
@@ -67,7 +70,7 @@ fn admit_tier(
     if crate::tier::model_known(model) && model == crate::tier::HIGHER.model {
         return Err(invalid(
             "/execution/native",
-            "未提供固定codex_binary时原生配置须显式high；所有模式均不允许覆盖profile",
+            "较高档推理强度只能是已登记的 high；提供固定 codex_binary 时文件才可以写 medium",
         ));
     }
     Err(invalid(
