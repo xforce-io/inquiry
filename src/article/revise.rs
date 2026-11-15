@@ -1066,6 +1066,10 @@ mod tests {
                 .await
                 .expect_err("the next distinct source must stop");
             assert!(full.to_string().contains("请立刻根据已读段落提交分析"));
+            tools
+                .call("inquiry.article_source", json!({"keyword": "unicode61"}))
+                .await
+                .expect("a keyword index does not consume a distinct source");
             ExecutionOutcome::Completed {
                 usage: json!({"submission": "model"}),
             }
@@ -1092,7 +1096,7 @@ mod tests {
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
         assert_eq!(
             tools.reads.load(Ordering::Acquire),
-            3 + SYNTHESIS_SOURCE_READS
+            4 + SYNTHESIS_SOURCE_READS
         );
         assert!(tools.writes.lock().await.is_empty());
     }

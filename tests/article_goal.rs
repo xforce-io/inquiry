@@ -1464,8 +1464,22 @@ impl Executor for SourceReadProbe {
                 )
                 .await
                 .unwrap();
+            let hits = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"artifact_id":a.id,"keyword":"mechanism"}),
+                )
+                .await
+                .unwrap();
+            let miss = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"artifact_id":a.id,"keyword":"not-in-the-saved-paragraph"}),
+                )
+                .await
+                .unwrap();
             self.0.lock().unwrap().push(
-                json!({"index":index["result"],"page":page["result"],"rejected_codes":codes}),
+                json!({"index":index["result"],"page":page["result"],"rejected_codes":codes,"hits":hits["result"],"miss":miss["result"]}),
             );
             return ExecutionOutcome::Failed {
                 code: "probe_complete".into(),
@@ -1497,6 +1511,15 @@ async fn source_index_gives_valid_example_and_historical_oversized_limits_remain
     assert_eq!(r["page"]["sha256"], r["index"]["sha256"]);
     assert_eq!(r["page"]["source_id"], "r1s1");
     assert_eq!(r["page"]["paragraphs"][0]["paragraph"], 0);
+    assert_eq!(r["hits"]["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(r["hits"]["hits"][0]["source_id"], "r1s1");
+    assert_eq!(r["hits"]["hits"][0]["paragraph"], 0);
+    let excerpt = r["hits"]["hits"][0]["excerpt"].as_str().unwrap();
+    assert!(excerpt.chars().count() <= 180);
+    assert!(
+        "A saved official statement with a real mechanism and limitation.".starts_with(excerpt)
+    );
+    assert!(r["miss"]["hits"].as_array().unwrap().is_empty());
     assert_eq!(r["page"]["has_more"], false);
     assert!(r["page"]["next_start"].is_null());
     fixture.runtime.shutdown().await.unwrap();
