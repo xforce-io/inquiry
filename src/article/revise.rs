@@ -1,20 +1,23 @@
-//! Revise must finish before the effective deadline. A late return is a failed run even when the report was written.
+//! Required outputs must finish before the effective deadline. A late return is a failed run even when the artifact was written.
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-/// Reads stop this long before the registered 300000 ms cap so one model turn can still submit.
+/// Reads stop this long before the registered stage cap so one model turn can still submit.
 pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
-/// Stop the model and, if it has not submitted, keep the accepted draft before that cap.
+/// Stop the model and, if it has not submitted, keep an accepted draft or an honest gap before that cap.
 pub const REVISE_HOST_RESERVE_MS: u64 = 25_000;
 
 pub struct ReviseGuard(pub Arc<dyn Executor>);
 
 struct ReportBridge {
     inner: Arc<dyn ToolBridge>,
+    output_slot: &'static str,
     report_written: AtomicBool,
-    /// Serializes the one report write so a late draft cannot replace a report already stored.
+    /// Set only by the host fallback, so a late model write cannot replace it.
+    host_written: AtomicBool,
+    /// Serializes the required slot so a host fallback cannot replace a model write.
     slot: Mutex<()>,
 }
 
@@ -127,15 +130,15 @@ impl ReportBridge {
         args: Value,
         metadata: Option<ToolCallMetadata>,
     ) -> Result<Value> {
-        if !(id == "artifact.write" && args["slot"] == "report") {
+        if !(id == "artifact.write" && args["slot"] == self.output_slot) {
             return match metadata {
                 Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await,
                 None => self.inner.call(id, args).await,
             };
         }
         let _guard = self.slot.lock().await;
-        if self.report_written.load(Ordering::Acquire) {
-            return Err(fault("report已经提交"));
+        if self.host_written.load(Ordering::Acquire) {
+            return Err(fault("该输出已经提交"));
         }
         let result = match metadata {
             Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
@@ -146,11 +149,17 @@ impl ReportBridge {
     }
 }
 
-fn is_revise(tools: &Arc<dyn ToolBridge>) -> bool {
-    matches!(
-        tools.goal_context().map(|ctx| ctx.role),
-        Some(GoalRunRole::NodeMember { node_id, .. }) if node_id == "revise"
-    )
+fn output_slot(tools: &Arc<dyn ToolBridge>) -> Option<&'static str> {
+    let role = tools.goal_context().map(|ctx| ctx.role)?;
+    match role {
+        GoalRunRole::NodeMember { node_id, .. } => match node_id.as_str() {
+            "synthesize" => Some("analysis"),
+            "draft" | "revise" => Some("report"),
+            "review" => Some("evaluation"),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 async fn saved_draft(inv: &Invocation, tools: &Arc<dyn ToolBridge>) -> Option<Value> {
@@ -176,7 +185,7 @@ impl ReviseGuard {
         let Some(draft) = draft else {
             return ExecutionOutcome::Failed {
                 code: "limit_reached".into(),
-                message: "修订未在时限内提交报告，且没有可沿用的已接受草稿".into(),
+                message: "未在时限内提交报告，且没有可沿用的已接受草稿".into(),
             };
         };
         match bridge
@@ -185,6 +194,7 @@ impl ReviseGuard {
             .await
         {
             Ok(_) => {
+                bridge.host_written.store(true, Ordering::Release);
                 bridge.report_written.store(true, Ordering::Release);
                 ExecutionOutcome::Completed {
                     usage: json!({"submission":"deadline_draft","native_model":true}),
@@ -197,6 +207,49 @@ impl ReviseGuard {
         }
     }
 
+    async fn keep_analysis(bridge: &ReportBridge, questions: &[String]) -> ExecutionOutcome {
+        let _guard = bridge.slot.lock().await;
+        if bridge.report_written.load(Ordering::Acquire) {
+            return ExecutionOutcome::Completed {
+                usage: json!({"submission":"report_written","native_model":true}),
+            };
+        }
+        let value = super::discovery::honest_need_input(questions);
+        match bridge
+            .inner
+            .call("artifact.write", json!({"slot":"analysis","value":value}))
+            .await
+        {
+            Ok(_) => {
+                bridge.host_written.store(true, Ordering::Release);
+                bridge.report_written.store(true, Ordering::Release);
+                ExecutionOutcome::Completed {
+                    usage: json!({"submission":"deadline_need_input","native_model":true}),
+                }
+            }
+            Err(e) => ExecutionOutcome::Failed {
+                code: e.code,
+                message: e.message,
+            },
+        }
+    }
+
+    async fn host_fallback(
+        bridge: &ReportBridge,
+        draft: Option<&Value>,
+        questions: &[String],
+        missed: Option<ExecutionOutcome>,
+    ) -> ExecutionOutcome {
+        match bridge.output_slot {
+            "report" => Self::keep_draft(bridge, draft).await,
+            "analysis" => Self::keep_analysis(bridge, questions).await,
+            _ => missed.unwrap_or(ExecutionOutcome::Failed {
+                code: "limit_reached".into(),
+                message: "工作状态未在时限内提交，宿主不编造评审".into(),
+            }),
+        }
+    }
+
     async fn execute_revise(
         &self,
         inv: Invocation,
@@ -204,10 +257,22 @@ impl ReviseGuard {
         cancel: CancellationToken,
         observer: Option<Arc<dyn MilkieObserver>>,
     ) -> ExecutionOutcome {
-        let draft = saved_draft(&inv, &tools).await;
+        let slot = output_slot(&tools).unwrap_or("report");
+        let draft = if slot == "report" {
+            saved_draft(&inv, &tools).await
+        } else {
+            None
+        };
+        let questions = if slot == "analysis" {
+            super::discovery::plan_subquestions(&inv, &tools).await
+        } else {
+            Vec::new()
+        };
         let bridge = Arc::new(ReportBridge {
             inner: tools.clone(),
+            output_slot: slot,
             report_written: AtomicBool::new(false),
+            host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
         });
         let child = cancel.child_token();
@@ -242,18 +307,23 @@ impl ReviseGuard {
             usage: json!({"submission":"report_written","native_model":true}),
         };
         match finish {
-            GuardFinish::Model(outcome) => match settle(
-                bridge.report_written.load(Ordering::Acquire),
-                missed_outcome(&outcome),
-            ) {
-                Settle::CompletedModel => model_report,
-                Settle::CopyDraft => Self::keep_draft(&bridge, draft.as_ref()).await,
-                Settle::Forward => outcome,
-            },
+            GuardFinish::Model(outcome) => {
+                let missed = missed_outcome(&outcome);
+                match settle(bridge.report_written.load(Ordering::Acquire), missed) {
+                    Settle::CompletedModel => model_report,
+                    Settle::CopyDraft => {
+                        Self::host_fallback(&bridge, draft.as_ref(), &questions, Some(outcome))
+                            .await
+                    }
+                    Settle::Forward => outcome,
+                }
+            }
             GuardFinish::Submitted => model_report,
             GuardFinish::Fallback => {
                 match settle(bridge.report_written.load(Ordering::Acquire), true) {
-                    Settle::CopyDraft => Self::keep_draft(&bridge, draft.as_ref()).await,
+                    Settle::CopyDraft => {
+                        Self::host_fallback(&bridge, draft.as_ref(), &questions, None).await
+                    }
                     _ => model_report,
                 }
             }
@@ -302,7 +372,7 @@ impl Executor for ReviseGuard {
         cancel: CancellationToken,
         observer: Option<Arc<dyn MilkieObserver>>,
     ) -> ExecutionOutcome {
-        if !is_revise(&tools) {
+        if output_slot(&tools).is_none() {
             return self.0.execute_observed(inv, tools, cancel, observer).await;
         }
         self.execute_revise(inv, tools, cancel, observer).await
@@ -435,7 +505,9 @@ mod tests {
     fn bridge(store: Arc<Store>) -> ReportBridge {
         ReportBridge {
             inner: store,
+            output_slot: "report",
             report_written: AtomicBool::new(false),
+            host_written: AtomicBool::new(false),
             slot: Mutex::new(()),
         }
     }
@@ -484,5 +556,239 @@ mod tests {
             .await;
         assert!(rejected.is_err());
         assert_eq!(store.report.lock().await.clone().unwrap(), draft);
+    }
+
+    struct SlotTools {
+        node: &'static str,
+        remaining_ms: u64,
+        draft_text: Option<String>,
+        writes: Mutex<Vec<Value>>,
+    }
+    #[async_trait]
+    impl ToolBridge for SlotTools {
+        fn specs(&self) -> Vec<ToolSpec> {
+            Vec::new()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            Some(GoalRunContext {
+                goal_id: "guard".into(),
+                plan_digest: None,
+                role: GoalRunRole::NodeMember {
+                    node_id: self.node.into(),
+                    member_id: "writer".into(),
+                },
+                evaluation_id: None,
+                epoch: 1,
+            })
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            None
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            Some(BudgetHint {
+                limit: 80,
+                used: 1,
+                remaining: 79,
+                read_remaining: 0,
+                submission_reserve: 2,
+                remaining_ms: self.remaining_ms,
+                mode: "finalize".into(),
+            })
+        }
+        async fn reject_json_candidate(&self, _: u64, _: ToolCallMetadata) -> Result<Value> {
+            Ok(json!({}))
+        }
+        async fn call(&self, id: &str, args: Value) -> Result<Value> {
+            match id {
+                "artifact.write" => {
+                    self.writes.lock().await.push(args);
+                    Ok(json!({}))
+                }
+                "artifact.read" => Ok(json!({"text": self.draft_text.clone().unwrap_or_default()})),
+                _ => Err(fault("测试桥不接受该工具")),
+            }
+        }
+    }
+    struct Scripted {
+        write: Option<Value>,
+    }
+    #[async_trait]
+    impl Executor for Scripted {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            cancel: CancellationToken,
+        ) -> ExecutionOutcome {
+            if let Some(args) = &self.write {
+                tools.call("artifact.write", args.clone()).await.unwrap();
+                return ExecutionOutcome::Failed {
+                    code: "limit_reached".into(),
+                    message: "execution deadline exceeded".into(),
+                };
+            }
+            cancel.cancelled().await;
+            ExecutionOutcome::Cancelled
+        }
+    }
+    fn invocation(artifacts: Vec<ArtifactRef>) -> Invocation {
+        Invocation {
+            stage_input: json!({}),
+            execution_id: "submit-guard".into(),
+            run_id: "run".into(),
+            state_id: "synthesize".into(),
+            visit: 1,
+            entry: EntryContract {
+                instruction: String::new(),
+                executor: "article.agent".into(),
+                skills: Vec::new(),
+                tools: Vec::new(),
+                input_schema: String::new(),
+                requires: Vec::new(),
+                outputs: BTreeMap::new(),
+                attachments: None,
+                gate: String::new(),
+                outcomes: Vec::new(),
+            },
+            skills: BTreeMap::new(),
+            output_schemas: BTreeMap::new(),
+            inputs: json!({}),
+            artifacts,
+            signal_facts: Vec::new(),
+            work_dir: std::env::temp_dir(),
+            timeout_ms: 1_000,
+            budget: None,
+        }
+    }
+    async fn drive(
+        node: &'static str,
+        remaining_ms: u64,
+        write: Option<Value>,
+        draft: Option<Value>,
+    ) -> (ExecutionOutcome, Vec<Value>) {
+        let tools = Arc::new(SlotTools {
+            node,
+            remaining_ms,
+            draft_text: draft.as_ref().map(|value| value.to_string()),
+            writes: Mutex::new(Vec::new()),
+        });
+        let artifacts = if draft.is_some() {
+            vec![ArtifactRef {
+                id: "draft-1".into(),
+                sha256: "abc".into(),
+                slot: "draft".into(),
+                state_id: "draft".into(),
+                visit: 1,
+            }]
+        } else {
+            Vec::new()
+        };
+        let guard = ReviseGuard(Arc::new(Scripted { write }));
+        let bridge: Arc<dyn ToolBridge> = tools.clone();
+        let outcome = guard
+            .execute_observed(
+                invocation(artifacts),
+                bridge,
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        let writes = tools.writes.lock().await.clone();
+        (outcome, writes)
+    }
+
+    #[tokio::test]
+    async fn written_analysis_survives_the_deadline_without_replacement() {
+        let analysis = json!({
+            "decision": "ready",
+            "evidence": [{
+                "artifact_id": "artifact-1",
+                "sha256": "abc",
+                "source_id": "r1s1",
+                "paragraph": 4,
+                "quote": "已读原句"
+            }],
+            "judgments": [],
+            "gaps": [],
+            "coverage": [],
+            "search_queries": []
+        });
+        let (outcome, writes) = drive(
+            "synthesize",
+            400_000,
+            Some(json!({"slot":"analysis","value":analysis})),
+            None,
+        )
+        .await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "report_written");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["slot"], "analysis");
+        assert_eq!(writes[0]["value"]["decision"], "ready");
+        assert_eq!(writes[0]["value"]["evidence"][0]["quote"], "已读原句");
+        assert_eq!(writes[0]["value"]["evidence"][0]["source_id"], "r1s1");
+    }
+
+    #[tokio::test]
+    async fn missing_analysis_records_need_input_without_evidence() {
+        let (outcome, writes) = drive("synthesize", REVISE_HOST_RESERVE_MS, None, None).await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "deadline_need_input");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        let value = &writes[0]["value"];
+        assert_eq!(writes[0]["slot"], "analysis");
+        assert_eq!(value["decision"], "need_input");
+        assert!(value["evidence"].as_array().unwrap().is_empty());
+        assert!(!value.to_string().contains("https://"));
+        assert!(value["citations"].is_null());
+    }
+
+    #[tokio::test]
+    async fn missing_review_and_draft_are_not_invented() {
+        for node in ["review", "draft"] {
+            let (outcome, writes) = drive(node, 0, None, None).await;
+            assert!(
+                matches!(outcome, ExecutionOutcome::Failed { ref code, .. } if code == "limit_reached"),
+                "{node} invented a completion: {outcome:?}"
+            );
+            assert!(writes.is_empty(), "{node} wrote {writes:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_copies_the_accepted_draft_unchanged() {
+        let draft = json!({
+            "answer_status": "insufficient_evidence",
+            "conclusion": "已有判断",
+            "citations": [{
+                "artifact_id": "artifact-1",
+                "sha256": "abc",
+                "source_id": "r1s1",
+                "paragraph": 10,
+                "quote": "草稿原句"
+            }],
+            "limitations": []
+        });
+        let (outcome, writes) = drive("revise", 0, None, Some(draft.clone())).await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "deadline_draft");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["value"], draft);
+        assert_eq!(writes[0]["value"]["citations"].as_array().unwrap().len(), 1);
     }
 }

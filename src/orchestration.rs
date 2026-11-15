@@ -79,7 +79,9 @@ fn policy(id: &str, ms: u64, calls: u64) -> RunBudgetPolicy {
         submission_reserve: 2,
         finalize_before_ms: match id {
             "article-initial-analysis" => article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS,
-            "article-revise" => article::revise::REVISE_FINALIZE_BEFORE_MS,
+            "article-analysis" | "article-draft" | "article-revise" | "article-semantic" => {
+                article::revise::REVISE_FINALIZE_BEFORE_MS
+            }
             _ => 2000,
         },
         max_model_iterations: None,
@@ -344,8 +346,11 @@ pub fn registry(
         if id == "article-initial-analysis" {
             instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the analysis before the hard deadline. Submit evidence already read, or decision=need_input with empty evidence and honest gaps. Do not keep reading until the deadline.");
         }
-        if id == "article-revise" {
-            instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the report before the hard deadline. If the review cannot be applied in time, write the existing draft report unchanged. Do not invent citations. Do not keep reading until the deadline.");
+        if matches!(
+            id,
+            "article-analysis" | "article-draft" | "article-revise" | "article-semantic"
+        ) {
+            instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the required output before the hard deadline. For analysis, submit evidence already read or decision=need_input with empty evidence. For a report, do not invent citations; a revision may write the existing draft unchanged. Do not keep reading until the deadline.");
         }
         let ms = match (native, id) {
             (true, "article-scope") => 300000,

@@ -15,6 +15,14 @@
 - `cargo test --locked --offline --test execution_config`：显式路径、已登记两档（`gpt-6.1-sol/high` 与 `gpt-6-astra/medium`）、无配置内容回显、未登记模型 `grok-4.7` 与未登记推理强度被拒绝且文件不改写、非法策略不装配；通过仅表示配置可用，不表示已登录。
 - `cargo test --locked --offline --test tier_binding`：真实研究 Playbook 经 `domain::bindings` 运行。分析与另一工作状态解析到两个不同的已登记模型 id；较低档状态在 `difficulty=hard` 时改为较高档，普通事实保持较低档；分析预算 80、另一工作状态 40；TaskLoop 流程定义拒绝难易字段和模型字段。
 
+## 阶段交卷（Issue #19 S1–S3）
+
+标准：沿用 `docs/design/2-research-web-mvp.md` 的预算不足规则。综合、成稿、评审和修订在登记时限前提交已写入结果；分析缺失时写 `decision=need_input` 且 evidence 为空；没有已接受草稿或不存在评审时失败，不编造引用或评审。`article-analysis` 的 max_run_ms 保持 450000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000。
+
+- `cargo test --locked --offline --lib article::revise::tests`：已写入分析不被时限失败替换；未写入分析的 evidence 长度为 0；评审和成稿缺失时不写产物；修订只原样沿用已接受草稿。
+- `cargo test --locked --offline --test article_goal native_discovery_uses_round_receipts_and_fetches_without_http_search_fallback`：原生综合 finalize 窗口短于 450000，且该上限仍为 450000。
+- 冻结 Vertex 原题的真实研究在合入候选上另跑，不把上述测试当成报告已完成。
+
 ## 模型档位（Issue #11 S1–S4，Issue #12 S1–S3）
 
 标准：`docs/design/11-state-model-tiers/product.md` v0.1 的 S1.A1–S4.A1，以及 `docs/design/12-task-difficulty-tier/product.md` v0.1 的 S1.A1–S3.A1。上面两条测试是本文件对应这些验收的可执行路径。网页研究创建仍走文章编排；该路径不因 `difficulty` 改档。配置或登录缺失时，真实模型步骤记 blocked，不把测试通过写成已登录。
