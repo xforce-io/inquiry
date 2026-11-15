@@ -191,3 +191,70 @@ fn twenty_saved_html_bodies_fit_archive_without_discarding_raw_bytes() {
         "twenty compressible source bodies exceed the unchanged archive boundary"
     );
 }
+
+#[test]
+fn saved_source_pages_keep_exact_indices_across_filtered_and_unfiltered_boundaries() {
+    let source = Source {
+        source_id: "r1s1".into(),
+        origin: "controlled".into(),
+        fact: Value::Null,
+        paragraphs: (0..11)
+            .map(|i| {
+                if i % 3 == 0 {
+                    format!("Needle {i}")
+                } else {
+                    format!("other {i}")
+                }
+            })
+            .collect(),
+    };
+    let (first, next) = source_paragraph_page(&source, "needle", 0, 2);
+    assert_eq!(
+        first
+            .iter()
+            .map(|p| p["paragraph"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![0, 3]
+    );
+    assert_eq!(next, Some(6));
+    let (last, next) = source_paragraph_page(&source, "needle", next.unwrap(), 2);
+    assert_eq!(
+        last.iter()
+            .map(|p| p["paragraph"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![6, 9]
+    );
+    assert_eq!(next, None);
+    let (first, next) = source_paragraph_page(&source, "", 0, 8);
+    assert_eq!(first.len(), 8);
+    assert_eq!(next, Some(8));
+    let (last, next) = source_paragraph_page(&source, "", next.unwrap(), 8);
+    assert_eq!(
+        last.iter()
+            .map(|p| p["paragraph"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![8, 9, 10]
+    );
+    assert_eq!(next, None);
+    assert_eq!(
+        source_paragraph_page(&source, "absent", 0, 5),
+        (vec![], None)
+    );
+    assert_eq!(source_paragraph_page(&source, "", 100, 5), (vec![], None));
+}
+#[test]
+fn source_page_excerpts_do_not_change_saved_paragraph_identity() {
+    let text = "汉".repeat(4001);
+    let source = Source {
+        source_id: "r1s1".into(),
+        origin: "controlled".into(),
+        fact: Value::Null,
+        paragraphs: vec![text.clone()],
+    };
+    let (page, next) = source_paragraph_page(&source, "", 0, 5);
+    assert_eq!(page[0]["paragraph"], 0);
+    assert_eq!(page[0]["text"].as_str().unwrap().chars().count(), 4000);
+    assert_eq!(page[0]["excerpted"], true);
+    assert_eq!(source.paragraphs[0], text);
+    assert_eq!(next, None);
+}

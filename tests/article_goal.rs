@@ -1379,3 +1379,80 @@ async fn native_discovery_uses_round_receipts_and_fetches_without_http_search_fa
     assert!(fetches.contains(&("supplement".into(), "https://example.com/saved".into())));
     fixture.runtime.shutdown().await.unwrap();
 }
+
+struct SourceReadProbe(Arc<std::sync::Mutex<Vec<Value>>>);
+#[async_trait]
+impl Executor for SourceReadProbe {
+    fn capabilities(&self) -> ExecutorCapabilities {
+        ExecutorCapabilities::MANAGED
+    }
+    fn enforces_json_candidate_limit(&self) -> bool {
+        true
+    }
+    async fn execute(
+        &self,
+        inv: Invocation,
+        tools: Arc<dyn ToolBridge>,
+        cancel: CancellationToken,
+    ) -> ExecutionOutcome {
+        if matches!(tools.goal_context().map(|c|c.role),Some(GoalRunRole::NodeMember{node_id,..})if node_id=="analyze")
+        {
+            let a = inv.artifacts.iter().find(|a| a.slot == "corpus").unwrap();
+            let index = tools
+                .call("inquiry.article_source", json!({"artifact_id":a.id}))
+                .await
+                .unwrap();
+            let mut codes = Vec::new();
+            for limit in [10, 20, 30, 50, 60, 100] {
+                let result = tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"artifact_id":a.id,"source_id":"r1s1","start":0,"limit":limit}),
+                    )
+                    .await;
+                codes.push(result.unwrap_err().code);
+            }
+            let page = tools
+                .call(
+                    "inquiry.article_source",
+                    index["result"]["read_example"].clone(),
+                )
+                .await
+                .unwrap();
+            self.0.lock().unwrap().push(
+                json!({"index":index["result"],"page":page["result"],"rejected_codes":codes}),
+            );
+            return ExecutionOutcome::Failed {
+                code: "probe_complete".into(),
+                message: "Controlled source reading contract complete; zero models".into(),
+            };
+        }
+        Agent {
+            final_verdict: "fail",
+        }
+        .execute(inv, tools, cancel)
+        .await
+    }
+}
+#[tokio::test]
+async fn source_index_gives_valid_example_and_historical_oversized_limits_remain_rejected() {
+    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let probe = Arc::new(SourceReadProbe(results.clone()));
+    let b = orchestration::bindings(probe.clone(), "source-reading-contract-fixture".into())
+        .executor("article.collect", probe);
+    let fixture = HttpFixture::with_bindings(b).await;
+    let id = fixture.create("controlled-source-read-contract").await;
+    fixture.wait(&id, "failed").await;
+    let records = results.lock().unwrap().clone();
+    assert_eq!(records.len(), 1);
+    let r = &records[0];
+    assert_eq!(r["index"]["read_limits"]["max_paragraphs"], 8);
+    assert_eq!(r["index"]["read_example"]["limit"], 5);
+    assert_eq!(r["rejected_codes"].as_array().unwrap().len(), 6);
+    assert_eq!(r["page"]["sha256"], r["index"]["sha256"]);
+    assert_eq!(r["page"]["source_id"], "r1s1");
+    assert_eq!(r["page"]["paragraphs"][0]["paragraph"], 0);
+    assert_eq!(r["page"]["has_more"], false);
+    assert!(r["page"]["next_start"].is_null());
+    fixture.runtime.shutdown().await.unwrap();
+}

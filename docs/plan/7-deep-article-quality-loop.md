@@ -160,3 +160,12 @@ Inquiry技术v0.9/方法0.4.2：显式native_search选择独立discovery/planner
 ego-browser真实填写点击创建Goal `goal-d4fae292-47cc-42bb-ab0d-9bd41db35f56`；原题/匿名映射摘要保持，DOM/HTTP核对候选。Planner151.719秒成功；scope180.299秒取消，均stopped。scope回执有2个completed搜索动作、8查询、58结果，complete=false，未形成接纳plan/discoveries/文章。仅在终态用Milkie公开SDK诊断本适配器归属记录对应的回执；生产仍只用TaskLoop公开查询，不接入私有路径。UI显示“研究未完成/文章尚未形成”，已关闭本任务浏览器并SIGTERM宿主，不自动重跑/执行对照。
 
 证据：work/verify/7-8114bd7/real-native-20261115内registration/ready/health/filled/activation/created/final-view/final-trace/final-budgets/receipt-summary/cumulative-after-attempt.json及final-visible.txt。累计28入口/6504.508秒已测执行（含记账零模型检查；未测编译不补零）；完整重启还需20入口，预计48，比旧46多2。技术v0.10/方法0.4.3候选只将原生scope180→300秒，总1800秒不变；先零模型验证，不预写真实修复PASS、不启动新模型。
+
+
+## 87f827f尝试与来源读取契约修正
+
+用户“go”批准具体48/45提案后重新登记，在真实Web创建Goal fd90e7d7（详见docs/experiments/7-87f827f-attempt.md）。范围189秒成功、51原生结果，首轮17份正文及无损档案摘要全部通过；初次分析300秒失败停止，无文章、不执行本批比较或自动重开。累计31入口/7405.841秒已测执行（含已记账零模型检查；未测编译不补零），研究29/审查2。新的完整剩余固定20入口预计总51，旧48仍不足，不能削减对照或评价。
+
+how：公开Trace确认12次invalid_input；终态Milkie SDK toolCall回执均为article_source请求limit10–100，超过Schema最大8。索引此前返回total段数但无合法例子/分页位置，工具说明没有明确限制；本次共31次成功来源读取。第一次宿主调用约119秒、最后已报告用量约193秒，不能将全部300秒归因于12次错误。生产不读取SDK私有文件，仅终态诊断按既有归属通过公开SDK取证；关闭本任务浏览器并正常SIGTERM宿主，等待shutdown。
+
+技术v0.11/方法0.4.4：保持8段、默认5段、每段4000字符；说明/Schema字段描述/索引元数据给出同一边界及read_example，单页提供next_start/has_more，末页null/false。合法读取保留ArtifactRef、零基段落和原短引文，不钳制超界、不吞错误。Unit覆盖关键词分页、末页/空页/Unicode摘录；公开Goal重放六种原超界参数仍拒绝，再按返回例子读取并核对版本。只修正已证实的契约可发现性缺口，新的完整运行是否按时完成仍待真实验证；本轮未再启动模型。

@@ -543,12 +543,35 @@ impl DomainTool for FetchSource {
     }
 }
 
+const SOURCE_PAGE_MAX: usize = 8;
+const SOURCE_PAGE_DEFAULT: usize = 5;
+const SOURCE_PARAGRAPH_CHARS: usize = 4000;
+fn source_read_limits() -> Value {
+    json!({"max_paragraphs":SOURCE_PAGE_MAX,"default_paragraphs":SOURCE_PAGE_DEFAULT,"max_chars_per_paragraph":SOURCE_PARAGRAPH_CHARS})
+}
+fn source_paragraph_page(
+    source: &Source,
+    keyword: &str,
+    start: usize,
+    limit: usize,
+) -> (Vec<Value>, Option<usize>) {
+    let mut matches = source
+        .paragraphs
+        .iter()
+        .enumerate()
+        .skip(start)
+        .filter(|(_, p)| keyword.is_empty() || p.to_lowercase().contains(keyword))
+        .peekable();
+    let paragraphs=matches.by_ref().take(limit).map(|(i,p)|json!({"paragraph":i,"text":p.chars().take(SOURCE_PARAGRAPH_CHARS).collect::<String>(),"excerpted":p.chars().count()>SOURCE_PARAGRAPH_CHARS})).collect();
+    let next_start = matches.peek().map(|(i, _)| *i);
+    (paragraphs, next_start)
+}
 pub struct ReadSource;
 #[async_trait]
 impl DomainTool for ReadSource {
     fn spec(&self) -> ToolSpec {
-        ToolSpec { id: "inquiry.article_source".into(), description: "Read exact saved paragraphs of an explicitly authorized source package; use its package id/hash and source_id for citations.".into(),
-            input_schema: json!({"type":"object","properties":{"artifact_id":{"type":"string"},"source_id":{"type":"string"},"keyword":{"type":"string","maxLength":200},"start":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":8}},"required":["artifact_id"],"additionalProperties":false}) }
+        ToolSpec { id: "inquiry.article_source".into(), description: "Read exact saved paragraphs. Omit source_id for the source index and a valid read_example. Per call limit is 1..8 (default5), NOT total_paragraphs; larger limits are rejected. Filter by keyword and follow next_start for another page. Use exact package id/hash, source_id and zero-based paragraph for citations.".into(),
+            input_schema: json!({"type":"object","properties":{"artifact_id":{"type":"string"},"source_id":{"type":"string"},"keyword":{"type":"string","maxLength":200},"start":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":SOURCE_PAGE_MAX,"description":"Paragraph count for this call: 1..8, default5. Never pass total_paragraphs; use next_start for another page."}},"required":["artifact_id"],"additionalProperties":false}) }
     }
     async fn call(&self, c: ToolContext, args: Value) -> Result<ToolOutput> {
         let id = args["artifact_id"]
@@ -561,19 +584,18 @@ impl DomainTool for ReadSource {
             .ok_or_else(|| fault("资料包未被当前阶段授权"))?;
         let Some(source_id) = args["source_id"].as_str() else {
             let package = corpus(artifact)?;
+            let example=package.sources.iter().find(|s|s.fact["usable"]==true).map(|s|json!({"artifact_id":id,"source_id":s.source_id,"start":0,"limit":SOURCE_PAGE_DEFAULT}));
             return Ok(ToolOutput::json(
-                json!({"artifact_id":id,"sha256":artifact.reference.sha256,"sources":package.sources.iter().map(|s| json!({"source_id":s.source_id,"origin":s.origin,"fact":s.fact,"paragraphs":s.paragraphs.len()})).collect::<Vec<_>>(),"limitations":package.limitations}),
+                json!({"artifact_id":id,"sha256":artifact.reference.sha256,"sources":package.sources.iter().map(|s| json!({"source_id":s.source_id,"origin":s.origin,"fact":s.fact,"paragraphs":s.paragraphs.len()})).collect::<Vec<_>>(),"limitations":package.limitations,"read_limits":source_read_limits(),"read_example":example}),
             ));
         };
         let source = source_view(artifact, source_id)?;
         let keyword = args["keyword"].as_str().unwrap_or("").to_lowercase();
         let start = args["start"].as_u64().unwrap_or(0) as usize;
-        let limit = args["limit"].as_u64().unwrap_or(5) as usize;
-        let paragraphs = source.paragraphs.iter().enumerate().skip(start)
-            .filter(|(_, p)| keyword.is_empty() || p.to_lowercase().contains(&keyword)).take(limit)
-            .map(|(i,p)| json!({"paragraph":i,"text":p.chars().take(4000).collect::<String>(),"excerpted":p.chars().count()>4000})).collect::<Vec<_>>();
+        let limit = args["limit"].as_u64().unwrap_or(SOURCE_PAGE_DEFAULT as u64) as usize;
+        let (paragraphs, next_start) = source_paragraph_page(&source, &keyword, start, limit);
         Ok(ToolOutput::json(
-            json!({"artifact_id":id,"sha256":artifact.reference.sha256,"source_id":source.source_id,"fact":source.fact,"total_paragraphs":source.paragraphs.len(),"paragraphs":paragraphs}),
+            json!({"artifact_id":id,"sha256":artifact.reference.sha256,"source_id":source.source_id,"fact":source.fact,"total_paragraphs":source.paragraphs.len(),"paragraphs":paragraphs,"read_limits":source_read_limits(),"next_start":next_start,"has_more":next_start.is_some()}),
         ))
     }
 }

@@ -29,3 +29,5 @@
 确定性Integration：`cargo test --locked --test article_goal native_discovery`验证两轮归属、零HTTP搜索及独立Fetch和既有来源重取；`cargo test --locked article::discovery`验证保留槽位、片段剔除及回执边界。实际公开抓取可显式指定INQUIRY_NATIVE_RECEIPT_FILE，运行原native_collection探针：该模式是既有真实回执的受控回放，零新增模型，不作为新自主研究；逐份原文字节与规范化SHA核对沿上文。新原题研究须另外真实创建及验收。
 
 技术v0.10/方法0.4.3：原生scope预算300秒，HTTP模式180秒，总Goal1800秒。受控native_discovery测试核对公开Run预算与Goal限额；这不证明文章达标。8114bd7旧180秒失败保留，新原题须重新登记且预算足够后再启动。
+
+技术v0.11/方法0.4.4：索引须给出read_limits（最大8/默认5/段字符4000）及合法read_example；单页按原始段落索引提供next_start/has_more，末页null/false，过滤时不丢匹配、不重复。`cargo test --locked --test article_goal source_index_gives_valid`重放历史limit10/20/30/50/60/100仍拒绝，并核对合法例子、版本/段落；纯分页Unit验证关键词/空页/摘录。新契约未真实证明300秒足够，原87失败保留。
