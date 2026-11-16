@@ -165,6 +165,72 @@ fn template_node(cap: &str, deps: &[&str], inputs: Value) -> Value {
     json!({"capabilities":[format!("{cap}@1")],"depends_on":dependencies,"inputs":inputs,"fillable_inputs":[]})
 }
 
+pub(crate) fn opened_comparison_clause(id: &str) -> Option<&'static str> {
+    match id {
+        "article-analysis" => Some(
+            " An opened saved comparison is evidence, not a gap. A capture after the question cutoff, a missing local measurement, or a license or version date absent from the saved pages is a limitation, not a decisive gap and not a search query. When opened paragraphs support a comparison and a pilot, write decision=ready with empty gaps and those limitations. Do not invent a license, a version date, or a measurement.",
+        ),
+        "article-draft" | "article-revise" => Some(
+            " When the accepted analysis has decision=ready and empty gaps, set answer_status=answered. Put a capture after the question cutoff, a missing local measurement, and a license or version date absent from the saved pages into limitations. Do not invent those facts.",
+        ),
+        "article-semantic" => Some(
+            " Do not fail an article that states a comparison from an opened saved paragraph solely because of a capture after the question cutoff, a missing local measurement, or a license or version date absent from the saved pages. Still fail a comparison the article did not state.",
+        ),
+        _ => None,
+    }
+}
+fn semantic_pass_conditions() -> [(&'static str, &'static str, &'static str); 6] {
+    [
+        (
+            "Q1",
+            "问题覆盖",
+            "Original question and every substantive required subquestion are answered, with honest supported limits; no substitution or deferred essential comparison.",
+        ),
+        (
+            "Q2",
+            "机制解释",
+            "Evidence-based explanation of how the object works and its key relationships; not marketing labels or invented internals.",
+        ),
+        (
+            "Q3",
+            "跨源综合",
+            "Key judgments explain source relationships, independence, conditions, differences and conflicts; not citation stacking.",
+        ),
+        (
+            "Q4",
+            "论证与证据",
+            "Key claims are actually supported by saved source content, with traceable reasoning and conditions; no major unsupported claim.",
+        ),
+        (
+            "Q5",
+            "反证与边界",
+            "Credible counterevidence, alternatives and conditions that could change the conclusion are substantively addressed.",
+        ),
+        (
+            "Q6",
+            "成稿与结论",
+            "A coherent complete article develops and resolves the original research question, rather than snippets, repetition or a future to-do list.",
+        ),
+    ]
+}
+#[cfg(test)]
+thread_local! {
+    static REGISTERED_STAGES: std::cell::RefCell<Vec<(String, String, u64)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    static SEMANTIC_RULES: std::cell::RefCell<Vec<Value>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+#[cfg(test)]
+fn note_registered_stage(id: &str, instruction: &str, ms: u64) {
+    REGISTERED_STAGES.with(|slot| {
+        slot.borrow_mut()
+            .push((id.to_owned(), instruction.to_owned(), ms));
+    });
+}
+#[cfg(test)]
+fn note_semantic_rules(rules: &[Value]) {
+    SEMANTIC_RULES.with(|slot| slot.borrow_mut().clone_from(&rules.to_vec()));
+}
 pub fn registry(
     root: &Path,
     bindings: &HostBindings,
@@ -364,11 +430,16 @@ pub fn registry(
                 article::revise::SYNTHESIS_SOURCE_READS
             ));
         }
+        if let Some(clause) = opened_comparison_clause(id) {
+            instruction.push_str(clause);
+        }
         let ms = match (native, id) {
             (true, "article-scope") => 300000,
             (true, "article-analysis") => 450000,
             _ => ms,
         };
+        #[cfg(test)]
+        note_registered_stage(id, &instruction, ms);
         r.register_entry(
             format!("{id}@1"),
             entry(executor, &instruction, input, &allowed, &outputs, skill),
@@ -422,42 +493,15 @@ pub fn registry(
     r.register_capability(serde_json::from_value(json!({"protocol_version":1,"id":"article-review","version":"1","kind":"work","inputs":review_ports,"outputs":{"evaluation":{"schema_ref":"_tl.evaluation-candidate@1"}},"gate":"_tl.schema@1","max_rule_check_ms":2000,"members":{"checker":{"entry_ref":"article-semantic@1","input_mode":"check_request"}},"join":{"kind":"object-by-worker","outputs":{"evaluation":{"kind":"member","member_id":"checker","slot":"evaluation"}}},"evaluation":{"purpose":"data","checker_ref":"article-semantic@1","target_ports":{"draft":"draft","plan":"plan","analysis":"analysis","corpus1":"corpus1","corpus2":"corpus2"}}}))?)?;
     let mut requirements = Vec::new();
     let mut plan_checks = BTreeMap::new();
-    let semantic_rules = [
-        (
-            "Q1",
-            "问题覆盖",
-            "Original question and every substantive required subquestion are answered, with honest supported limits; no substitution or deferred essential comparison.",
-        ),
-        (
-            "Q2",
-            "机制解释",
-            "Evidence-based explanation of how the object works and its key relationships; not marketing labels or invented internals.",
-        ),
-        (
-            "Q3",
-            "跨源综合",
-            "Key judgments explain source relationships, independence, conditions, differences and conflicts; not citation stacking.",
-        ),
-        (
-            "Q4",
-            "论证与证据",
-            "Key claims are actually supported by saved source content, with traceable reasoning and conditions; no major unsupported claim.",
-        ),
-        (
-            "Q5",
-            "反证与边界",
-            "Credible counterevidence, alternatives and conditions that could change the conclusion are substantively addressed.",
-        ),
-        (
-            "Q6",
-            "成稿与结论",
-            "A coherent complete article develops and resolves the original research question, rather than snippets, repetition or a future to-do list.",
-        ),
-    ];
+    let semantic_rules = semantic_pass_conditions();
     for (name,rules) in [
         ("integrity",vec![json!({"id":"citation_integrity","instruction":"Verify exact saved source bytes, citations and analysis lineage.","pass_condition":"All citation checks pass and report is answered.","evidence_required":true})]),
         ("semantic",semantic_rules.iter().map(|(id,title,condition)|json!({"id":id,"instruction":format!("{title}: inspect actual article sections and saved source paragraphs."),"pass_condition":condition,"evidence_required":true})).collect()),
     ] {
+        #[cfg(test)]
+        if name == "semantic" {
+            note_semantic_rules(&rules);
+        }
         let digest=r.register_rules(format!("article-{name}"),&serde_json::to_vec(&json!({"protocol_version":1,"id":format!("article-{name}"),"version":"1","rules":rules}))?)?;
         r.register_checker(format!("article-{name}@1"),CheckerContract{entry_ref:format!("article-{name}@1"),rules_ref:format!("article-{name}"),result_slot:"evaluation".into(),fresh_context:true,goal_input_fields:vec!["scope".into()]})?;
         let targets=vec!["article","analysis","plan","corpus1","corpus2"];
@@ -588,4 +632,107 @@ pub fn registry(
         max_json_candidate_bytes: 4_194_304,
     };
     Ok((r, options))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
+
+    struct Idle;
+
+    #[async_trait]
+    impl Executor for Idle {
+        fn enforces_json_candidate_limit(&self) -> bool {
+            true
+        }
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            _: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            ExecutionOutcome::Cancelled
+        }
+    }
+
+    fn registered(id: &str) -> (String, u64) {
+        REGISTERED_STAGES.with(|slot| {
+            slot.borrow()
+                .iter()
+                .rev()
+                .find(|(stage, _, _)| stage == id)
+                .map(|(_, instruction, ms)| (instruction.clone(), *ms))
+                .unwrap_or_else(|| panic!("missing {id}"))
+        })
+    }
+
+    #[test]
+    fn opened_saved_comparison_is_registered_as_a_limit_without_raising_budgets() {
+        REGISTERED_STAGES.with(|slot| slot.borrow_mut().clear());
+        SEMANTIC_RULES.with(|slot| slot.borrow_mut().clear());
+        let agent = Arc::new(Idle);
+        let bindings = native_bindings(agent.clone(), agent.clone(), agent, "issue-36".into());
+        registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
+
+        let analysis_clause = opened_comparison_clause("article-analysis").unwrap();
+        let (analysis, analysis_ms) = registered("article-analysis");
+        assert!(analysis.contains(analysis_clause));
+        assert!(analysis_clause.contains("opened saved comparison is evidence, not a gap"));
+        assert!(analysis_clause.contains("capture after the question cutoff"));
+        assert!(analysis_clause.contains("missing local measurement"));
+        assert!(analysis_clause.contains(
+            "license or version date absent from the saved pages is a limitation, not a decisive gap and not a search query"
+        ));
+        assert!(analysis_clause.contains("decision=ready with empty gaps"));
+        assert!(
+            analysis_clause.contains("Do not invent a license, a version date, or a measurement.")
+        );
+        assert!(!analysis_clause.contains("450000"));
+        assert!(!analysis_clause.contains("1800000"));
+        assert!(!analysis_clause.to_ascii_lowercase().contains("raise"));
+        assert!(analysis.contains(&format!(
+            "Synthesis may open {} distinct saved sources.",
+            article::revise::SYNTHESIS_SOURCE_READS
+        )));
+        assert_eq!(article::revise::SYNTHESIS_SOURCE_READS, 16);
+        assert_eq!(analysis_ms, 450_000);
+        assert_eq!(limits().max_active_ms, 1_800_000);
+        assert_eq!(limits().max_wall_ms, 1_800_000);
+
+        let writing = opened_comparison_clause("article-draft").unwrap();
+        assert_eq!(opened_comparison_clause("article-revise"), Some(writing));
+        let (draft, draft_ms) = registered("article-draft");
+        let (revise, revise_ms) = registered("article-revise");
+        assert!(draft.contains(writing));
+        assert!(revise.contains(writing));
+        assert!(writing.contains("set answer_status=answered"));
+        assert!(writing.contains("into limitations"));
+        assert!(writing.contains("Do not invent those facts."));
+        assert_eq!(draft_ms, 300_000);
+        assert_eq!(revise_ms, 300_000);
+
+        let review_clause = opened_comparison_clause("article-semantic").unwrap();
+        let (semantic, semantic_ms) = registered("article-semantic");
+        assert!(semantic.contains(review_clause));
+        assert!(review_clause.contains(
+            "Do not fail an article that states a comparison from an opened saved paragraph"
+        ));
+        assert!(review_clause.contains("Still fail a comparison the article did not state."));
+        assert_eq!(semantic_ms, 240_000);
+        let (initial, _) = registered("article-initial-analysis");
+        assert!(!initial.contains("opened saved comparison is evidence"));
+
+        let rules = SEMANTIC_RULES.with(|slot| slot.borrow().clone());
+        let q1 = rules.iter().find(|rule| rule["id"] == "Q1").unwrap();
+        assert_eq!(
+            q1["pass_condition"],
+            "Original question and every substantive required subquestion are answered, with honest supported limits; no substitution or deferred essential comparison."
+        );
+    }
 }

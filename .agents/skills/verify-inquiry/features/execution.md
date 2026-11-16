@@ -38,3 +38,10 @@
 ## #7 现有登录与固定high接入
 
 原生配置默认medium时，通过显式codex_binary生成任务私有启动器并强制high；使用reuse_native_login时必须指定既有config_dir/sessions真实目录。先跑配置路径/不改配置检查及native_milkie本地401/停止验证；再按运行前登记显式执行`INQUIRY_REAL_PROBE_DIR=<绝对证据目录> INQUIRY_REAL_PROBE_CONFIG=<显式JSON> cargo test --locked --test native_goal_probe -- --ignored --nocapture`，只允许一个真实Planner入口，既定小Run预算拒绝后续文章图。须核对原生执行completed及真实host工具提交，规划仅因max_runs不足被拒；不把预期的整体failed当研究成功，也不以此替代Web或文章语义验收。
+
+## 已打开比较与研究限制（Issue #36 S1–S2）
+
+标准：沿用名词表的证据缺口与研究限制。已经打开、并能支持比较的保存段落不是缺口。问题截止之后的采集时间、没有的本地测量、保存页里没有的许可或版本日期写入限制，不编造。`check_report` 仍拒绝未 ready 或仍有缺口的分析。来源读取额度保持 16，`article-analysis` 的 max_run_ms 保持 450000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000，语义评审 max_run_ms 保持 240000。Q1 仍要求必要比较不能被推迟代替。不把下列测试当成下一次冻结题报告已经完成。
+
+- `cargo test --locked --offline --lib orchestration::tests::opened_saved_comparison_is_registered_as_a_limit_without_raising_budgets`：原生登记后的综合、成稿、修订和语义评审指令包含上述规则；初次分析不含该规则；Q1 的 pass_condition 不变。
+- `cargo test --locked --offline --test article_goal exact_source_versions_and_analysis_lineage_are_required`：decision 改为 need_input 且缺口为空时，`check_report` 仍拒绝。
