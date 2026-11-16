@@ -79,6 +79,7 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
         "lineage",
         "coverage",
         "gap",
+        "decision",
         "unsupported",
     ] {
         let mut r = report.clone();
@@ -91,6 +92,7 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
             "lineage" => an["judgments"][0]["support"] = json!(["unknown"]),
             "coverage" => an["coverage"][0]["evidence_ids"] = json!(["unknown"]),
             "gap" => an["gaps"] = json!(["Unanswered decisive comparison"]),
+            "decision" => an["decision"] = json!("need_input"),
             _ => r.answer_status = "insufficient_evidence".into(),
         }
         assert!(
