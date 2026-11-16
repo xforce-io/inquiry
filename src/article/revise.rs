@@ -327,11 +327,18 @@ fn output_slot(tools: &Arc<dyn ToolBridge>) -> Option<&'static str> {
     }
 }
 
+/// Accepted draft reports are published on slot `report`. The draft node is a
+/// `state_id` path segment (`_tl.node.draft`), not the consumer input name.
+fn is_accepted_draft(artifact: &ArtifactRef) -> bool {
+    artifact.slot == "draft"
+        || (artifact.slot == "report" && artifact.state_id.split('.').any(|part| part == "draft"))
+}
+
 async fn saved_draft(inv: &Invocation, tools: &Arc<dyn ToolBridge>) -> Option<Value> {
     let draft = inv
         .artifacts
         .iter()
-        .find(|artifact| artifact.slot == "draft")?;
+        .find(|artifact| is_accepted_draft(artifact))?;
     let response = tools
         .call("artifact.read", json!({"id": draft.id}))
         .await
@@ -777,7 +784,15 @@ mod tests {
                     self.writes.lock().await.push(args);
                     Ok(json!({}))
                 }
-                "artifact.read" => Ok(json!({"text": self.draft_text.clone().unwrap_or_default()})),
+                "artifact.read" => {
+                    let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                    let text = if id == "other-report" {
+                        "{\"answer_status\":\"answered\",\"citations\":[{\"quote\":\"别的节点\",\"source_id\":\"r9s9\",\"paragraph\":1,\"artifact_id\":\"other\",\"sha256\":\"fff\"}]}".to_string()
+                    } else {
+                        self.draft_text.clone().unwrap_or_default()
+                    };
+                    Ok(json!({"text": text}))
+                }
                 "inquiry.article_source" => {
                     self.reads.fetch_add(1, Ordering::Release);
                     Ok(json!({"ok": true}))
@@ -840,11 +855,34 @@ mod tests {
             budget: None,
         }
     }
+    fn artifact_ref(id: &str, slot: &str, state_id: &str) -> ArtifactRef {
+        ArtifactRef {
+            id: id.into(),
+            sha256: "abc".into(),
+            slot: slot.into(),
+            state_id: state_id.into(),
+            visit: 1,
+        }
+    }
     async fn drive(
         node: &'static str,
         remaining_ms: u64,
         write: Option<Value>,
         draft: Option<Value>,
+    ) -> (ExecutionOutcome, Vec<Value>) {
+        let artifacts = if draft.is_some() {
+            vec![artifact_ref("draft-1", "draft", "draft")]
+        } else {
+            Vec::new()
+        };
+        drive_with(node, remaining_ms, write, draft, artifacts).await
+    }
+    async fn drive_with(
+        node: &'static str,
+        remaining_ms: u64,
+        write: Option<Value>,
+        draft: Option<Value>,
+        artifacts: Vec<ArtifactRef>,
     ) -> (ExecutionOutcome, Vec<Value>) {
         let tools = Arc::new(SlotTools {
             node,
@@ -853,17 +891,6 @@ mod tests {
             writes: Mutex::new(Vec::new()),
             reads: AtomicU32::new(0),
         });
-        let artifacts = if draft.is_some() {
-            vec![ArtifactRef {
-                id: "draft-1".into(),
-                sha256: "abc".into(),
-                slot: "draft".into(),
-                state_id: "draft".into(),
-                visit: 1,
-            }]
-        } else {
-            Vec::new()
-        };
         let guard = ReviseGuard(Arc::new(Scripted { write }));
         let bridge: Arc<dyn ToolBridge> = tools.clone();
         let outcome = guard
@@ -968,6 +995,132 @@ mod tests {
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0]["value"], draft);
         assert_eq!(writes[0]["value"]["citations"].as_array().unwrap().len(), 1);
+    }
+
+    fn public_draft() -> Value {
+        json!({
+            "answer_status": "answered",
+            "conclusion": "已有判断",
+            "citations": [{
+                "artifact_id": "artifact-1",
+                "sha256": "abc",
+                "source_id": "r1s1",
+                "paragraph": 10,
+                "quote": "草稿原句"
+            }],
+            "limitations": []
+        })
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_copies_the_public_draft_report_unchanged() {
+        let draft = public_draft();
+        for state_id in ["_tl.node.draft", "_tl.node.draft.member.worker"] {
+            let (outcome, writes) = drive_with(
+                "revise",
+                0,
+                None,
+                Some(draft.clone()),
+                vec![artifact_ref("draft-1", "report", state_id)],
+            )
+            .await;
+            match outcome {
+                ExecutionOutcome::Completed { usage } => {
+                    assert_eq!(usage["submission"], "deadline_draft", "{state_id}");
+                }
+                other => panic!("{state_id} unexpected {other:?}"),
+            }
+            assert_eq!(writes.len(), 1, "{state_id}");
+            assert_eq!(writes[0]["slot"], "report");
+            assert_eq!(writes[0]["value"], draft, "{state_id}");
+            assert_eq!(writes[0]["value"]["citations"].as_array().unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_skips_another_nodes_report_and_copies_the_draft() {
+        let draft = public_draft();
+        let (outcome, writes) = drive_with(
+            "revise",
+            0,
+            None,
+            Some(draft.clone()),
+            vec![
+                artifact_ref("other-report", "report", "_tl.node.revise"),
+                artifact_ref("draft-1", "report", "_tl.node.draft"),
+            ],
+        )
+        .await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "deadline_draft");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["value"], draft);
+        assert_ne!(writes[0]["value"]["citations"][0]["quote"], "别的节点");
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_does_not_copy_a_report_from_another_node() {
+        let draft = public_draft();
+        for state_id in [
+            "_tl.node.collect",
+            "_tl.node.revise",
+            "_tl.node.review",
+            "_tl.node.drafting",
+        ] {
+            let (outcome, writes) = drive_with(
+                "revise",
+                0,
+                None,
+                Some(draft.clone()),
+                vec![artifact_ref("other-report", "report", state_id)],
+            )
+            .await;
+            match outcome {
+                ExecutionOutcome::Failed { code, message } => {
+                    assert_eq!(code, "limit_reached", "{state_id}");
+                    assert_eq!(message, "未在时限内提交报告，且没有可沿用的已接受草稿");
+                }
+                other => panic!("{state_id} copied a report: {other:?}"),
+            }
+            assert!(writes.is_empty(), "{state_id} wrote {writes:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn written_revise_report_survives_when_a_public_draft_exists() {
+        let draft = public_draft();
+        let report = json!({
+            "answer_status": "answered",
+            "conclusion": "模型已交",
+            "citations": [{
+                "artifact_id": "artifact-1",
+                "sha256": "abc",
+                "source_id": "r1s1",
+                "paragraph": 10,
+                "quote": "模型原句"
+            }],
+            "limitations": []
+        });
+        let (outcome, writes) = drive_with(
+            "revise",
+            400_000,
+            Some(json!({"slot":"report","value":report})),
+            Some(draft),
+            vec![artifact_ref("draft-1", "report", "_tl.node.draft")],
+        )
+        .await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "report_written");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["value"]["citations"][0]["quote"], "模型原句");
     }
 
     fn saved_analysis() -> Value {
