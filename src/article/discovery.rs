@@ -9,6 +9,9 @@ pub const INITIAL_ANALYSIS_FINALIZE_BEFORE_MS: u64 = 90_000;
 pub const INITIAL_ANALYSIS_HOST_RESERVE_MS: u64 = 25_000;
 /// Page reads stop here so the same run can still search public gaps and submit.
 pub const INITIAL_ANALYSIS_SOURCE_READS: u32 = 8;
+/// Shown on the read that fills the cap, and again if another read is attempted.
+pub const INITIAL_ANALYSIS_SUBMIT: &str =
+    "初次分析的来源页已够判断缺口，请立刻原生搜索可公开补齐的缺口并提交分析";
 
 pub struct DiscoveryExecutor(pub Arc<MilkieExecutor>);
 struct AgentBridge {
@@ -45,8 +48,10 @@ impl ToolBridge for AgentBridge {
         if let Some(refusal) = self.admit_source_read(id) {
             return Ok(refusal);
         }
-        let result = self.inner.call(id, args.clone()).await?;
-        self.note_source_read(id);
+        let mut result = self.inner.call(id, args.clone()).await?;
+        if self.note_source_read(id) {
+            attach_cap_sentence(&mut result);
+        }
         self.store_analysis(id, &args);
         Ok(result)
     }
@@ -60,11 +65,13 @@ impl ToolBridge for AgentBridge {
         if let Some(refusal) = self.admit_source_read(id) {
             return Ok(refusal);
         }
-        let result = self
+        let mut result = self
             .inner
             .call_with_metadata(id, args.clone(), metadata)
             .await?;
-        self.note_source_read(id);
+        if self.note_source_read(id) {
+            attach_cap_sentence(&mut result);
+        }
         self.store_analysis(id, &args);
         Ok(result)
     }
@@ -81,16 +88,16 @@ impl AgentBridge {
             return None;
         }
         if self.source_reads.load(Ordering::Acquire) >= INITIAL_ANALYSIS_SOURCE_READS {
-            return Some(model_refusal(
-                "初次分析的来源页已够判断缺口，请立刻原生搜索可公开补齐的缺口并提交分析",
-            ));
+            return Some(model_refusal(INITIAL_ANALYSIS_SUBMIT));
         }
         None
     }
-    fn note_source_read(&self, id: &str) {
+    fn note_source_read(&self, id: &str) -> bool {
         if id == "inquiry.article_source" && self.on_initial_analysis() {
-            self.source_reads.fetch_add(1, Ordering::Release);
+            let next = self.source_reads.fetch_add(1, Ordering::Release) + 1;
+            return next == INITIAL_ANALYSIS_SOURCE_READS;
         }
+        false
     }
     fn store_analysis(&self, id: &str, args: &Value) {
         if id == "artifact.write" && args["slot"] == "analysis" {
@@ -111,6 +118,11 @@ impl AgentBridge {
             .is_some_and(|items| !items.is_empty());
         let ready = value["decision"] == "ready" && !gaps;
         !ready || queries
+    }
+}
+fn attach_cap_sentence(result: &mut Value) {
+    if let Some(object) = result.as_object_mut() {
+        object.insert("message".to_owned(), json!(INITIAL_ANALYSIS_SUBMIT));
     }
 }
 /// The adapter already checks receipt ownership. This boundary validates the domain projection.
@@ -603,12 +615,28 @@ mod tests {
             reads: AtomicU32::new(0),
         });
         let bridge = read_bridge(analyze.clone());
+        let mut filling = Value::Null;
         for _ in 0..INITIAL_ANALYSIS_SOURCE_READS {
-            bridge
+            filling = bridge
                 .call("inquiry.article_source", json!({}))
                 .await
                 .unwrap();
         }
+        assert_eq!(filling["ok"], true);
+        assert_ne!(filling["code"], "rejected");
+        assert!(
+            filling["message"]
+                .as_str()
+                .unwrap()
+                .contains("请立刻原生搜索")
+        );
+        assert_eq!(
+            analyze.reads.load(Ordering::Relaxed),
+            INITIAL_ANALYSIS_SOURCE_READS
+        );
+        assert_eq!(INITIAL_ANALYSIS_SOURCE_READS, 8);
+        assert_eq!(INITIAL_ANALYSIS_FINALIZE_BEFORE_MS, 90_000);
+        assert_eq!(INITIAL_ANALYSIS_HOST_RESERVE_MS, 25_000);
         let rejected = bridge
             .call("inquiry.article_source", json!({}))
             .await
