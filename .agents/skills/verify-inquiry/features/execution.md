@@ -45,3 +45,9 @@
 
 - `cargo test --locked --offline --lib orchestration::tests::opened_saved_comparison_is_registered_as_a_limit_without_raising_budgets`：原生登记后的综合、成稿、修订和语义评审指令包含上述规则；初次分析不含该规则；Q1 的 pass_condition 不变。
 - `cargo test --locked --offline --test article_goal exact_source_versions_and_analysis_lineage_are_required`：decision 改为 need_input 且缺口为空时，`check_report` 仍拒绝。
+
+## 修订沿用公开草稿（Issue #17 S1–S2）
+
+标准：沿用 Issue #17。修订在登记的 300000 毫秒内提交。模型已写入 `report` 则保留该报告。模型未写入时，宿主把已接受草稿原样写入 `report`，引用不增加。公开草稿的 slot 是产出端口 `report`，`state_id` 为 `_tl.node.draft`（路径段 `draft`，含 `_tl.node.draft.member.worker`）。slot 同为 `report` 但路径段不是 `draft` 的产物不复制，包括 `_tl.node.revise`、`_tl.node.collect`、`_tl.node.review` 和 `_tl.node.drafting`。没有已接受草稿时失败，不编造报告，也不编造评审。修订 `max_run_ms` 保持 300000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000。不把下列测试当成下一次冻结题报告已经完成。
+
+- `cargo test --locked --offline --lib article::revise::tests`：上述公开草稿被原样沿用且 `submission` 为 `deadline_draft`；其他节点的报告排在前面时仍沿用草稿节点；仅有其他节点报告时失败且不写；模型已写入时 `submission` 为 `report_written` 且不换成草稿。成稿阶段没有草稿时仍不写。
