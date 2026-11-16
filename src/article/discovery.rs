@@ -42,7 +42,9 @@ impl ToolBridge for AgentBridge {
     }
     async fn call(&self, id: &str, args: Value) -> Result<Value> {
         allowed(id, &args)?;
-        self.admit_source_read(id)?;
+        if let Some(refusal) = self.admit_source_read(id) {
+            return Ok(refusal);
+        }
         let result = self.inner.call(id, args.clone()).await?;
         self.note_source_read(id);
         self.store_analysis(id, &args);
@@ -55,7 +57,9 @@ impl ToolBridge for AgentBridge {
         metadata: ToolCallMetadata,
     ) -> Result<Value> {
         allowed(id, &args)?;
-        self.admit_source_read(id)?;
+        if let Some(refusal) = self.admit_source_read(id) {
+            return Ok(refusal);
+        }
         let result = self
             .inner
             .call_with_metadata(id, args.clone(), metadata)
@@ -72,16 +76,16 @@ impl AgentBridge {
             Some(GoalRunRole::NodeMember { node_id, .. }) if node_id == "analyze"
         )
     }
-    fn admit_source_read(&self, id: &str) -> Result<()> {
+    fn admit_source_read(&self, id: &str) -> Option<Value> {
         if id != "inquiry.article_source" || !self.on_initial_analysis() {
-            return Ok(());
+            return None;
         }
         if self.source_reads.load(Ordering::Acquire) >= INITIAL_ANALYSIS_SOURCE_READS {
-            return Err(fault(
+            return Some(model_refusal(
                 "初次分析的来源页已够判断缺口，请立刻原生搜索可公开补齐的缺口并提交分析",
             ));
         }
-        Ok(())
+        None
     }
     fn note_source_read(&self, id: &str) {
         if id == "inquiry.article_source" && self.on_initial_analysis() {
@@ -608,8 +612,15 @@ mod tests {
         let rejected = bridge
             .call("inquiry.article_source", json!({}))
             .await
-            .expect_err("the next source read must stop");
-        assert!(rejected.to_string().contains("请立刻原生搜索"));
+            .expect("the ninth source read reaches the caller");
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(rejected["code"], "rejected");
+        assert!(
+            rejected["message"]
+                .as_str()
+                .unwrap()
+                .contains("请立刻原生搜索")
+        );
         assert_eq!(
             analyze.reads.load(Ordering::Relaxed),
             INITIAL_ANALYSIS_SOURCE_READS
