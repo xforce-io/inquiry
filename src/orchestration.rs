@@ -426,8 +426,9 @@ pub fn registry(
         }
         if id == "article-analysis" {
             instruction.push_str(&format!(
-                " Synthesis may open {} distinct saved sources. A source index call does not count. Before opening any saved source, call a keyword index once: non-empty keyword and no source_id. The host refuses a page until that call succeeds. A source index without a keyword does not satisfy it. A keyword index lists matching saved sources and does not count. When a hit names a paragraph, the first open of that source must cover it: no in-page keyword, and start through start+limit must include that paragraph. A refused open does not count as read. Open every still-unread source from the latest non-empty keyword result before any source it did not name; the host refuses the other page. An empty keyword result does not cancel that list. Reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. Unmeasured local results are limitations, not gaps.",
-                article::revise::SYNTHESIS_SOURCE_READS
+                " Synthesis may open {} distinct saved sources. A source index call does not count. Before opening any saved source, call a keyword index once: non-empty keyword and no source_id. The host refuses a page until that call succeeds. A source index without a keyword does not satisfy it. A keyword index lists matching saved sources and does not count. When a hit names a paragraph, the first open of that source must cover it: no in-page keyword, and start through start+limit must include that paragraph. A refused open does not count as read. Open every still-unread source from the latest non-empty keyword result before any source it did not name; the host refuses the other page. An empty keyword result does not cancel that list. Reading a source again is refused while another saved source is still unread. Do not record a gap for a saved source you have not opened. After the host refuses further sources, submit the analysis from paragraphs already read. The read that reaches that cap still returns its paragraphs and includes this sentence: {}. Treat that sentence as the host refusing further sources, and submit from paragraphs already read, including that page. Do not wait for another source read. Unmeasured local results are limitations, not gaps.",
+                article::revise::SYNTHESIS_SOURCE_READS,
+                article::revise::SYNTHESIS_SUBMIT
             ));
         }
         if let Some(clause) = opened_comparison_clause(id) {
@@ -700,6 +701,8 @@ mod tests {
             "Synthesis may open {} distinct saved sources.",
             article::revise::SYNTHESIS_SOURCE_READS
         )));
+        assert!(analysis.contains(article::revise::SYNTHESIS_SUBMIT));
+        assert!(analysis.contains("The read that reaches that cap still returns its paragraphs"));
         assert_eq!(article::revise::SYNTHESIS_SOURCE_READS, 16);
         assert_eq!(analysis_ms, 450_000);
         assert_eq!(limits().max_active_ms, 1_800_000);

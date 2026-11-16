@@ -58,3 +58,10 @@
 
 - `cargo test --locked --offline --lib article::revise::tests`：上述综合分析与评审拒绝的返回值含既有句子，且 `reads` 不因拒绝增加。
 - `cargo test --locked --offline --lib article::discovery::tests::initial_analysis_stops_paging_and_rejects_a_public_gap_without_a_search`：第 9 次返回值含既有句子，读取次数仍为 8。
+
+## 读满名额的提交句（Issue #41 S1–S3）
+
+标准：沿用 #24 的 16 次成功与第 17 次拒绝，以及既有句子「综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页」。第 16 次不同来源读取仍到达实际工具并带回该页，同一结果包含该句。已打开 16 个后再读已打开来源返回同一句，不要求再打开新来源，且不计入读取。未满 16 时重读仍要求改读尚未打开的来源。成稿连续 17 次读取不受该上限。来源读取额度保持 16，交卷窗口保持 90000，`article-analysis` 的 max_run_ms 保持 450000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000。不编造分析。不把下列测试当成下一次冻结题报告已经完成。
+
+- `cargo test --locked --offline --lib article::revise::tests`：第 16 次结果含既有句子且 `code` 不是 `rejected`；第 17 次拒绝且读取不增加；已满后重读返回同一句；成稿 17 次到达工具。
+- `cargo test --locked --offline --lib orchestration::tests::opened_saved_comparison_is_registered_as_a_limit_without_raising_budgets`：综合分析指令包含该句，并说明读满的那一次仍返回段落。阶段 450000 与任务 1800000 不变。
