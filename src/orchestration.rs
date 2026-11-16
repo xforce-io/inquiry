@@ -414,6 +414,10 @@ pub fn registry(
         };
         if id == "article-initial-analysis" {
             instruction.push_str(" When the execution budget mode is finalize, or a read is refused because time is reserved, stop reading and artifact.write the analysis before the hard deadline. Submit evidence already read, or decision=need_input with empty evidence and honest gaps. Do not keep reading until the deadline.");
+            instruction.push_str(&format!(
+                " The read that reaches that cap still returns its paragraphs and includes this sentence: {}. Treat that sentence as the host refusing further source reads. Search the public gaps those pages do not cover, then submit the analysis. Do not wait for another source read.",
+                article::discovery::INITIAL_ANALYSIS_SUBMIT
+            ));
         }
         if matches!(
             id,
@@ -728,8 +732,12 @@ mod tests {
         ));
         assert!(review_clause.contains("Still fail a comparison the article did not state."));
         assert_eq!(semantic_ms, 240_000);
-        let (initial, _) = registered("article-initial-analysis");
+        let (initial, initial_ms) = registered("article-initial-analysis");
         assert!(!initial.contains("opened saved comparison is evidence"));
+        assert!(initial.contains(article::discovery::INITIAL_ANALYSIS_SUBMIT));
+        assert!(initial.contains("The read that reaches that cap still returns its paragraphs"));
+        assert_eq!(article::discovery::INITIAL_ANALYSIS_SOURCE_READS, 8);
+        assert_eq!(initial_ms, 300_000);
 
         let rules = SEMANTIC_RULES.with(|slot| slot.borrow().clone());
         let q1 = rules.iter().find(|rule| rule["id"] == "Q1").unwrap();
