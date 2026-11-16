@@ -11,6 +11,10 @@ pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
 pub const REVISE_HOST_RESERVE_MS: u64 = 25_000;
 /// Distinct saved sources synthesis may open. Repeats and source indexes do not consume this.
 pub const SYNTHESIS_SOURCE_READS: u32 = 16;
+/// Shown when the distinct-source cap is reached. The read that fills the cap
+/// returns its paragraphs with this sentence; a later read is refused with it.
+pub const SYNTHESIS_SUBMIT: &str =
+    "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页";
 
 pub struct ReviseGuard(pub Arc<dyn Executor>);
 
@@ -157,20 +161,23 @@ impl ReportBridge {
             return Ok(refusal);
         }
         if !(id == "artifact.write" && args["slot"] == self.output_slot) {
-            let result = match metadata {
+            let mut result = match metadata {
                 Some(metadata) => self.inner.call_with_metadata(id, args, metadata).await?,
                 None => self.inner.call(id, args).await?,
             };
             if id == "inquiry.article_source" && self.output_slot == "analysis" {
                 if let Some(source_id) = source_id {
-                    self.opened_sources
-                        .lock()
-                        .expect("opened sources")
-                        .insert(source_id.clone());
+                    let mut opened = self.opened_sources.lock().expect("opened sources");
+                    opened.insert(source_id.clone());
+                    let filled = opened.len() == SYNTHESIS_SOURCE_READS as usize;
+                    drop(opened);
                     self.pending_hits
                         .lock()
                         .expect("pending hits")
                         .remove(&source_id);
+                    if filled && let Some(object) = result.as_object_mut() {
+                        object.insert("message".to_owned(), json!(SYNTHESIS_SUBMIT));
+                    }
                 } else if !keyword.is_empty() {
                     self.keyword_probed.store(true, Ordering::Release);
                     if let Some(ids) = keyword_hit_ids(&result)
@@ -219,15 +226,16 @@ impl ReportBridge {
             .budget_hint()
             .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
         if reserved {
-            return Some(model_refusal(
-                "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
-            ));
+            return Some(model_refusal(SYNTHESIS_SUBMIT));
         }
         let source_id = args["source_id"]
             .as_str()
             .filter(|value| !value.is_empty())?;
         let opened = self.opened_sources.lock().expect("opened sources");
         if opened.contains(source_id) {
+            if opened.len() >= SYNTHESIS_SOURCE_READS as usize {
+                return Some(model_refusal(SYNTHESIS_SUBMIT));
+            }
             return Some(model_refusal(
                 "该来源已经读过，请改读尚未打开的已保存来源；不要把未读来源写成缺口",
             ));
@@ -249,9 +257,7 @@ impl ReportBridge {
         drop(pending);
         drop(opened);
         if at_cap {
-            return Some(model_refusal(
-                "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
-            ));
+            return Some(model_refusal(SYNTHESIS_SUBMIT));
         }
         if let Some(paragraph) = required
             && !page_covers(args, paragraph)
@@ -1200,7 +1206,16 @@ mod tests {
                     let message = shown_refusal(result);
                     assert!(message.contains("请立刻根据已读段落提交分析"));
                 } else {
-                    result.expect("source read reaches the tool");
+                    let value = result.expect("source read reaches the tool");
+                    if self.stop_at_cap && index + 1 == SYNTHESIS_SOURCE_READS {
+                        let message = value["message"].as_str().unwrap_or("");
+                        assert!(
+                            message.contains("请立刻根据已读段落提交分析"),
+                            "the read that fills the cap returns the submit sentence"
+                        );
+                        assert_ne!(value["code"], "rejected");
+                        assert_eq!(value["ok"], true);
+                    }
                 }
             }
             if let Some(args) = &self.write {
@@ -1443,13 +1458,18 @@ mod tests {
                     .unwrap();
             }
             for index in 3..=SYNTHESIS_SOURCE_READS {
-                tools
+                let value = tools
                     .call(
                         "inquiry.article_source",
                         json!({"source_id": format!("r1s{index}")}),
                     )
                     .await
                     .unwrap();
+                if index == SYNTHESIS_SOURCE_READS {
+                    let message = value["message"].as_str().unwrap_or("");
+                    assert!(message.contains("请立刻根据已读段落提交分析"));
+                    assert_ne!(value["code"], "rejected");
+                }
             }
             let full = shown_refusal(
                 tools
@@ -1457,6 +1477,16 @@ mod tests {
                     .await,
             );
             assert!(full.contains("请立刻根据已读段落提交分析"));
+            let reread = shown_refusal(
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": "r1s1", "start": 8}),
+                    )
+                    .await,
+            );
+            assert!(reread.contains("请立刻根据已读段落提交分析"));
+            assert!(!reread.contains("尚未打开"));
             tools
                 .call("inquiry.article_source", json!({"keyword": "unicode61"}))
                 .await
