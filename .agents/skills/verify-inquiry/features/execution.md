@@ -51,3 +51,10 @@
 标准：沿用 Issue #17。修订在登记的 300000 毫秒内提交。模型已写入 `report` 则保留该报告。模型未写入时，宿主把已接受草稿原样写入 `report`，引用不增加。公开草稿的 slot 是产出端口 `report`，`state_id` 为 `_tl.node.draft`（路径段 `draft`，含 `_tl.node.draft.member.worker`）。slot 同为 `report` 但路径段不是 `draft` 的产物不复制，包括 `_tl.node.revise`、`_tl.node.collect`、`_tl.node.review` 和 `_tl.node.drafting`。没有已接受草稿时失败，不编造报告，也不编造评审。修订 `max_run_ms` 保持 300000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000。不把下列测试当成下一次冻结题报告已经完成。
 
 - `cargo test --locked --offline --lib article::revise::tests`：上述公开草稿被原样沿用且 `submission` 为 `deadline_draft`；其他节点的报告排在前面时仍沿用草稿节点；仅有其他节点报告时失败且不写；模型已写入时 `submission` 为 `report_written` 且不换成草稿。成稿阶段没有草稿时仍不写。
+
+## 拒绝句到达调用方（Issue #39 S1–S3）
+
+标准：沿用 #22、#24、#26、#30、#32、#34 的拒绝句。综合分析的重复来源、未先做非空关键词索引、命中未打开、段落窗口未盖住、第 17 个不同来源，以及剩余时间不超过 90000 毫秒，都把既有句子交给调用方，且该次不计入读取、不记为已打开。评审在同一窗口内把「请立刻提交评审」交给调用方，随后仍可写 evaluation。初次分析第 9 次来源页把「请立刻原生搜索」交给调用方，读取次数仍为 8。宿主完整性失败（回执不完整、重复原生条目、发现槽只由宿主写、「该输出已经提交」）仍是失败。来源读取额度保持 16 与 8，交卷窗口保持 90000，`article-analysis` 的 max_run_ms 保持 450000，评审保持 240000，任务 `max_active_ms` 与 `max_wall_ms` 保持 1800000。不把下列测试当成下一次冻结题报告已经完成。
+
+- `cargo test --locked --offline --lib article::revise::tests`：上述综合分析与评审拒绝的返回值含既有句子，且 `reads` 不因拒绝增加。
+- `cargo test --locked --offline --lib article::discovery::tests::initial_analysis_stops_paging_and_rejects_a_public_gap_without_a_search`：第 9 次返回值含既有句子，读取次数仍为 8。

@@ -52,6 +52,16 @@ pub struct Report {
 pub fn fault(message: impl Into<String>) -> Error {
     Error::new("research_invalid", "/article", message)
 }
+
+/// The caller must obey this sentence. An `Err` loses the text on the host
+/// tool path, so the sentence is a successful tool value instead.
+pub fn model_refusal(message: impl Into<String>) -> Value {
+    json!({
+        "ok": false,
+        "code": "rejected",
+        "message": message.into(),
+    })
+}
 fn corpus(artifact: &ArtifactData) -> Result<Corpus> {
     let data: Corpus = serde_json::from_value(parse_unique(&artifact.bytes)?)?;
     if data.version != 1 || !(1..=2).contains(&data.round) {

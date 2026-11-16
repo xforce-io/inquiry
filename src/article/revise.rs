@@ -144,11 +144,17 @@ impl ReportBridge {
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
         let keyword = args["keyword"].as_str().unwrap_or("").trim().to_owned();
-        if id == "inquiry.article_source" && self.output_slot == "evaluation" {
-            self.admit_review_read()?;
+        if id == "inquiry.article_source"
+            && self.output_slot == "evaluation"
+            && let Some(refusal) = self.admit_review_read()
+        {
+            return Ok(refusal);
         }
-        if id == "inquiry.article_source" && self.output_slot == "analysis" {
-            self.admit_synthesis_read(&args)?;
+        if id == "inquiry.article_source"
+            && self.output_slot == "analysis"
+            && let Some(refusal) = self.admit_synthesis_read(&args)
+        {
+            return Ok(refusal);
         }
         if !(id == "artifact.write" && args["slot"] == self.output_slot) {
             let result = match metadata {
@@ -194,40 +200,40 @@ impl ReportBridge {
         Ok(result)
     }
 
-    fn admit_review_read(&self) -> Result<()> {
+    fn admit_review_read(&self) -> Option<Value> {
         let reserved = self
             .inner
             .budget_hint()
             .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
         if reserved {
-            return Err(fault(
+            return Some(model_refusal(
                 "评审的来源页已够提交判断，请立刻提交评审，不要继续翻页",
             ));
         }
-        Ok(())
+        None
     }
 
-    fn admit_synthesis_read(&self, args: &Value) -> Result<()> {
+    fn admit_synthesis_read(&self, args: &Value) -> Option<Value> {
         let reserved = self
             .inner
             .budget_hint()
             .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
         if reserved {
-            return Err(fault(
+            return Some(model_refusal(
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
             ));
         }
-        let Some(source_id) = args["source_id"].as_str().filter(|value| !value.is_empty()) else {
-            return Ok(());
-        };
+        let source_id = args["source_id"]
+            .as_str()
+            .filter(|value| !value.is_empty())?;
         let opened = self.opened_sources.lock().expect("opened sources");
         if opened.contains(source_id) {
-            return Err(fault(
+            return Some(model_refusal(
                 "该来源已经读过，请改读尚未打开的已保存来源；不要把未读来源写成缺口",
             ));
         }
         if !self.keyword_probed.load(Ordering::Acquire) {
-            return Err(fault(
+            return Some(model_refusal(
                 "请先做一次不带来源编号、且关键词非空的来源索引，再打开来源页。不带关键词的完整索引不算",
             ));
         }
@@ -236,23 +242,23 @@ impl ReportBridge {
             && !pending.contains_key(source_id)
             && opened.len() < SYNTHESIS_SOURCE_READS as usize
         {
-            return Err(pending_refusal(&pending));
+            return Some(pending_refusal(&pending));
         }
         let required = pending.get(source_id).copied().flatten();
         let at_cap = opened.len() >= SYNTHESIS_SOURCE_READS as usize;
         drop(pending);
         drop(opened);
         if at_cap {
-            return Err(fault(
+            return Some(model_refusal(
                 "综合分析的来源页已够提交判断，请立刻根据已读段落提交分析，不要继续翻页",
             ));
         }
         if let Some(paragraph) = required
             && !page_covers(args, paragraph)
         {
-            return Err(paragraph_refusal(source_id, paragraph));
+            return Some(paragraph_refusal(source_id, paragraph));
         }
-        Ok(())
+        None
     }
 }
 
@@ -297,19 +303,19 @@ fn page_covers(args: &Value, paragraph: u64) -> bool {
     start <= paragraph && paragraph < start.saturating_add(limit)
 }
 
-fn paragraph_refusal(source_id: &str, paragraph: u64) -> Error {
-    fault(format!(
+fn paragraph_refusal(source_id: &str, paragraph: u64) -> Value {
+    model_refusal(format!(
         "请打开 {source_id} 的第 {paragraph} 段：不要加页内关键词，并且本次 start 到 start+limit 必须包含该段（limit 为 1 到 8，省略时为 5）。未盖住该段不算已经读过"
     ))
 }
 
-fn pending_refusal(pending: &BTreeMap<String, Option<u64>>) -> Error {
+fn pending_refusal(pending: &BTreeMap<String, Option<u64>>) -> Value {
     let shown: Vec<&str> = pending.keys().map(String::as_str).take(8).collect();
     let mut list = shown.join("、");
     if pending.len() > shown.len() {
         list.push_str(&format!("等{}个", pending.len()));
     }
-    fault(format!(
+    model_refusal(format!(
         "关键词索引已经指出尚未打开的来源，请先打开它们：{list}。不要先读索引未指出的来源"
     ))
 }
@@ -558,6 +564,16 @@ impl Executor for ReviseGuard {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicU32;
+
+    fn shown_refusal(result: Result<Value>) -> String {
+        let value = result.expect("the refusal sentence reaches the caller");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["code"], "rejected");
+        value["message"]
+            .as_str()
+            .expect("refusal message")
+            .to_owned()
+    }
 
     #[test]
     fn accepted_draft_keeps_existing_citations() {
@@ -1181,8 +1197,8 @@ mod tests {
                 let refused = self.refuse_immediately
                     || (self.stop_at_cap && index == SYNTHESIS_SOURCE_READS);
                 if refused {
-                    let err = result.expect_err("synthesis must refuse this source read");
-                    assert!(err.to_string().contains("请立刻根据已读段落提交分析"));
+                    let message = shown_refusal(result);
+                    assert!(message.contains("请立刻根据已读段落提交分析"));
                 } else {
                     result.expect("source read reaches the tool");
                 }
@@ -1305,8 +1321,8 @@ mod tests {
                 )
                 .await;
             if self.expect_refuse {
-                let err = result.expect_err("review must refuse this source read");
-                assert!(err.to_string().contains("请立刻提交评审"));
+                let message = shown_refusal(result);
+                assert!(message.contains("请立刻提交评审"));
                 tools
                     .call(
                         "artifact.write",
@@ -1407,14 +1423,15 @@ mod tests {
                 .call("inquiry.article_source", json!({"source_id": "r1s1"}))
                 .await
                 .unwrap();
-            let repeated = tools
-                .call(
-                    "inquiry.article_source",
-                    json!({"source_id": "r1s1", "start": 8}),
-                )
-                .await
-                .expect_err("an opened source must yield");
-            assert!(repeated.to_string().contains("尚未打开的已保存来源"));
+            let repeated = shown_refusal(
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": "r1s1", "start": 8}),
+                    )
+                    .await,
+            );
+            assert!(repeated.contains("尚未打开的已保存来源"));
             tools
                 .call("inquiry.article_source", json!({"source_id": "r1s2"}))
                 .await
@@ -1434,11 +1451,12 @@ mod tests {
                     .await
                     .unwrap();
             }
-            let full = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s99"}))
-                .await
-                .expect_err("the next distinct source must stop");
-            assert!(full.to_string().contains("请立刻根据已读段落提交分析"));
+            let full = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s99"}))
+                    .await,
+            );
+            assert!(full.contains("请立刻根据已读段落提交分析"));
             tools
                 .call("inquiry.article_source", json!({"keyword": "unicode61"}))
                 .await
@@ -1557,21 +1575,23 @@ mod tests {
                 .call("inquiry.article_source", json!({}))
                 .await
                 .unwrap();
-            let blocked = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
-                .await
-                .expect_err("a source outside the keyword hits must wait");
-            assert!(blocked.to_string().contains("请先打开"));
-            assert!(blocked.to_string().contains("r1s16"));
+            let blocked = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                    .await,
+            );
+            assert!(blocked.contains("请先打开"));
+            assert!(blocked.contains("r1s16"));
             tools
                 .call("inquiry.article_source", json!({"keyword": "missing"}))
                 .await
                 .unwrap();
-            let still = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
-                .await
-                .expect_err("an empty keyword result must not clear the hits");
-            assert!(still.to_string().contains("请先打开"));
+            let still = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                    .await,
+            );
+            assert!(still.contains("请先打开"));
             tools
                 .call("inquiry.article_source", json!({"source_id": "r1s16"}))
                 .await
@@ -1685,20 +1705,22 @@ mod tests {
             tools: Arc<dyn ToolBridge>,
             _: CancellationToken,
         ) -> ExecutionOutcome {
-            let early = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s3"}))
-                .await
-                .expect_err("a page before any keyword index must wait");
-            assert!(early.to_string().contains("完整索引不算"));
+            let early = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s3"}))
+                    .await,
+            );
+            assert!(early.contains("完整索引不算"));
             tools
                 .call("inquiry.article_source", json!({}))
                 .await
                 .unwrap();
-            let after_full = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s3"}))
-                .await
-                .expect_err("a full index must not satisfy the keyword probe");
-            assert!(after_full.to_string().contains("完整索引不算"));
+            let after_full = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s3"}))
+                    .await,
+            );
+            assert!(after_full.contains("完整索引不算"));
             tools
                 .call("inquiry.article_source", json!({"keyword": "none"}))
                 .await
@@ -1711,38 +1733,42 @@ mod tests {
                 .call("inquiry.article_source", json!({"keyword": "trigram"}))
                 .await
                 .unwrap();
-            let other = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
-                .await
-                .expect_err("a source outside the hit must wait");
-            assert!(other.to_string().contains("请先打开"));
-            assert!(other.to_string().contains("r1s3"));
-            let filtered = tools
-                .call(
-                    "inquiry.article_source",
-                    json!({"source_id": "r1s3", "keyword": "benchmark", "start": 25, "limit": 1}),
-                )
-                .await
-                .expect_err("an in-page keyword must not hide the indexed paragraph");
-            assert!(filtered.to_string().contains("r1s3"));
-            assert!(filtered.to_string().contains("25"));
-            let window = tools
-                .call(
-                    "inquiry.article_source",
-                    json!({"source_id": "r1s3", "start": 0, "limit": 5}),
-                )
-                .await
-                .expect_err("the default window does not cover paragraph 25");
-            assert!(window.to_string().contains("25"));
+            let other = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                    .await,
+            );
+            assert!(other.contains("请先打开"));
+            assert!(other.contains("r1s3"));
+            let filtered = shown_refusal(
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": "r1s3", "keyword": "benchmark", "start": 25, "limit": 1}),
+                    )
+                    .await,
+            );
+            assert!(filtered.contains("r1s3"));
+            assert!(filtered.contains("25"));
+            let window = shown_refusal(
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": "r1s3", "start": 0, "limit": 5}),
+                    )
+                    .await,
+            );
+            assert!(window.contains("25"));
             tools
                 .call("inquiry.article_source", json!({"keyword": "missing"}))
                 .await
                 .unwrap();
-            let still = tools
-                .call("inquiry.article_source", json!({"source_id": "r1s2"}))
-                .await
-                .expect_err("an empty keyword result must not clear the hit");
-            assert!(still.to_string().contains("请先打开"));
+            let still = shown_refusal(
+                tools
+                    .call("inquiry.article_source", json!({"source_id": "r1s2"}))
+                    .await,
+            );
+            assert!(still.contains("请先打开"));
             tools
                 .call(
                     "inquiry.article_source",
@@ -1754,14 +1780,15 @@ mod tests {
                 .call("inquiry.article_source", json!({"source_id": "r1s2"}))
                 .await
                 .expect("other sources open after the hit paragraph is covered");
-            let repeat = tools
-                .call(
-                    "inquiry.article_source",
-                    json!({"source_id": "r1s3", "start": 25, "limit": 1}),
-                )
-                .await
-                .expect_err("the covered source cannot be opened twice");
-            assert!(repeat.to_string().contains("尚未打开"));
+            let repeat = shown_refusal(
+                tools
+                    .call(
+                        "inquiry.article_source",
+                        json!({"source_id": "r1s3", "start": 25, "limit": 1}),
+                    )
+                    .await,
+            );
+            assert!(repeat.contains("尚未打开"));
             ExecutionOutcome::Completed {
                 usage: json!({"submission": "model"}),
             }
