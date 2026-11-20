@@ -1,4 +1,5 @@
 import './style.css';
+import { httpHref, splitInline } from './articleInline';
 import { finalArticleLabel, runStatusLabel } from './articleStatus';
 import { buildCitationAliases, resolveCitationIndex, type Citation, type Evidence } from './citationRefs';
 import { projectRun, renderRun, resetRunView, type RawEvent, type RunMode } from './run-view';
@@ -61,23 +62,22 @@ function researchError(error:NonNullable<Snapshot['error']>){
  return '本阶段执行或检查未能完成，已有成果仍保留。请核对原因后再决定是否新建研究。';
 }
 function inline(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
- const pattern=/(\*\*[^*]+\*\*|`[^`]+`|\[[A-Za-z0-9_-]+\])/g;
- let start=0;
- for(const match of text.matchAll(pattern)){
-  parent.append(document.createTextNode(text.slice(start,match.index)));
-  const value=match[0];
-  if(value.startsWith('[')){
-   const index=resolveCitationIndex(value.slice(1,-1),citations.length,aliases);
-   if(index!==undefined){
-    const citation=citations[index];
-    const b=button(value.slice(1,-1),'cite',()=>void showSource(id,citation.artifact_id,citation));
-    b.setAttribute('aria-label',`查看来源${index+1}`);
-    parent.append(b);
-   }else{parent.append(document.createTextNode(value));}
-  }else{parent.append(element(value.startsWith('**')?'strong':'code','',value.slice(value.startsWith('**')?2:1,value.startsWith('**')?-2:-1)));}
-  start=(match.index||0)+value.length;
+ for(const piece of splitInline(text)){
+  if(piece.kind==='text'){parent.append(document.createTextNode(piece.text));continue;}
+  if(piece.kind==='strong'||piece.kind==='em'||piece.kind==='code'){parent.append(element(piece.kind==='strong'?'strong':piece.kind==='em'?'em':'code','',piece.text));continue;}
+  if(piece.kind==='link'){
+   const href=httpHref(piece.href);
+   if(!href){inline(parent,piece.label,citations,id,aliases);continue;}
+   const anchor=document.createElement('a');anchor.href=href;anchor.rel='noreferrer noopener';anchor.target='_blank';inline(anchor,piece.label,citations,id,aliases);parent.append(anchor);continue;
+  }
+  const index=resolveCitationIndex(piece.marker.slice(1,-1),citations.length,aliases);
+  if(index!==undefined){
+   const citation=citations[index];
+   const b=button(piece.marker.slice(1,-1),'cite',()=>void showSource(id,citation.artifact_id,citation));
+   b.setAttribute('aria-label',`查看来源${index+1}`);
+   parent.append(b);
+  }else parent.append(document.createTextNode(piece.marker));
  }
- parent.append(document.createTextNode(text.slice(start)));
 }
 function markdown(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){const lines=text.split('\n');let i=0;while(i<lines.length){const line=lines[i].trim();if(!line){i++;continue;}if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3}/.test(lines[i+1])){const table=element('table');const wrap=element('div','table-wrap');const cells=(s:string)=>s.trim().replace(/^\||\|$/g,'').split('|').map(s=>s.trim());const header=element('tr');for(const cell of cells(line)){const th=element('th');inline(th,cell,citations,id,aliases);header.append(th);}table.append(header);i+=2;while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){const row=element('tr');for(const cell of cells(lines[i])){const td=element('td');inline(td,cell,citations,id,aliases);row.append(td);}table.append(row);i++;}wrap.append(table);parent.append(wrap);continue;}
  const heading=line.match(/^(#{1,4})\s+(.+)/);if(heading){const h=element(heading[1].length<=2?'h2':'h3');inline(h,heading[2],citations,id,aliases);parent.append(h);i++;continue;}
