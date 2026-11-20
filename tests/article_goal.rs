@@ -584,6 +584,60 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "A. Smith found it.",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "名称 | 主张\n--- | ---\n其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "名称 | 主张\n--- | ---\n其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "其它 | Exact sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use `*x*` now [1].",
+        "[1]",
+        "now",
+        "Use *x* now.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Use `*x*` now [1].",
+        "[1]",
+        "now",
+        "Use x now.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "He said \"It works. [1]\"",
+        "[1]",
+        "works",
+        "He said \"It works.\"",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "He said \"It works. [1]\" Next sentence.",
+        "[1]",
+        "works",
+        "He said \"It works.\" Next sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "He said \"It fails. [1]\"",
+        "[1]",
+        "works",
+        "He said \"It works.\"",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result (see note [1]).",
+        "[1]",
+        "note",
+        "The result (see note).",
+    ));
+    assert!(article::paragraph_states_marked_claims(
         "| 存储 | 其它 |\n| --- | --- |\n| The system stores events. [1] | 未引用 |",
         "[1]",
         "stores",

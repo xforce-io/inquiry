@@ -156,7 +156,9 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A short quote inside the paragraph is not enough when the sentence says something else.
 /// A marker after the sentence end belongs to that sentence when it stays in the same block. A marker after a blank line does not.
 /// List marks, links, emphasis, and table pipes are article syntax. A citation marker inside a code span or a link URL is not a citation.
-/// An underscore inside a word is not emphasis. A table cell is compared alone only when its row belongs to a table that has a separator line.
+/// An underscore inside a word is not emphasis. Emphasis and links inside a code span stay literal.
+/// A table cell is compared alone only when its row belongs to a table that has a separator line. A row may contain one pipe.
+/// A citation marker before a closing quote or parenthesis stays on that sentence, and the space before the marker is removed.
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
@@ -326,8 +328,31 @@ fn digit_marker_end(chars: &[char], index: usize) -> Option<usize> {
     }
 }
 fn strip_article_syntax(sentence: &str) -> String {
-    let plain = strip_code_spans(&strip_emphasis_markers(&strip_markdown_links(sentence)));
+    let protected = map_outside_code_spans(sentence, |text| {
+        strip_emphasis_markers(&strip_markdown_links(text))
+    });
+    let plain = strip_code_spans(&protected);
     strip_block_prefix(plain.trim())
+}
+fn map_outside_code_spans(text: &str, mut transform: impl FnMut(&str) -> String) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut index = 0;
+    let mut segment = 0;
+    while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index) {
+            let outside: String = chars[segment..index].iter().collect();
+            out.push_str(&transform(&outside));
+            out.extend(chars[index..=end].iter().copied());
+            index = end + 1;
+            segment = index;
+            continue;
+        }
+        index += 1;
+    }
+    let outside: String = chars[segment..].iter().collect();
+    out.push_str(&transform(&outside));
+    out
 }
 fn strip_code_spans(text: &str) -> String {
     let mut out = String::new();
@@ -381,11 +406,18 @@ fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
         .rev()
         .find(|(start, end)| &text[*start..*end] == marker)?;
     let before_space = start > 0 && text.as_bytes()[start - 1].is_ascii_whitespace();
-    let after = text[end..].trim_start();
-    if before_space && (after.is_empty() || after.starts_with(['.', '。', '！', '？', '!', '?']))
+    let after_raw = &text[end..];
+    let after = after_raw.trim_start();
+    let matching_closer = after.chars().next().is_some_and(|ch| {
+        sentence_closer(ch) && delimiter_stack(&text[..start]).last() == Some(&ch)
+    });
+    if before_space
+        && (after.is_empty()
+            || after.starts_with(['.', '。', '！', '？', '!', '?'])
+            || matching_closer)
     {
         start -= 1;
-    } else if before_space && text[end..].starts_with(|ch: char| ch.is_whitespace()) {
+    } else if before_space && after_raw.starts_with(|ch: char| ch.is_whitespace()) {
         end += text[end..].chars().next().map(char::len_utf8).unwrap_or(1);
     }
     Some(format!("{}{}", &text[..start], &text[end..]))
@@ -647,7 +679,8 @@ fn table_line_mask(lines: &[&str]) -> Vec<bool> {
     mask
 }
 fn table_row_line(line: &str) -> bool {
-    table_separator_line(line) || line.trim().trim_end_matches('\r').matches('|').count() >= 2
+    let trimmed = line.trim().trim_end_matches('\r');
+    table_separator_line(line) || trimmed.contains('|')
 }
 fn table_separator_line(line: &str) -> bool {
     let trimmed = line.trim().trim_end_matches('\r');
@@ -675,7 +708,7 @@ fn separator_cell(cell: &str) -> bool {
 fn marked_table_line(line: &str) -> String {
     let line = line.trim_end_matches('\r');
     let trimmed = line.trim();
-    if trimmed.matches('|').count() < 2 {
+    if !trimmed.contains('|') {
         return line.to_owned();
     }
     let marked: Vec<String> = table_cells(trimmed)
@@ -747,10 +780,15 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
         let punctuation = matches!(ch, '。' | '！' | '？' | '!' | '?')
             || (ch == '.' && english_sentence_period(&chars, index));
         if punctuation {
+            let period = index;
             index += 1;
             while index < chars.len() && sentence_closer(chars[index]) {
                 current.push(chars[index]);
                 index += 1;
+            }
+            if let Some(end) = marker_before_matching_closer(&chars, period, index) {
+                current.extend(chars[index..end].iter().copied());
+                index = end;
             }
         } else {
             index += 1;
@@ -838,6 +876,75 @@ fn markdown_link_end(chars: &[char], start: usize) -> Option<usize> {
         cursor += 1;
     }
     None
+}
+fn delimiter_stack(text: &str) -> Vec<char> {
+    let chars: Vec<char> = text.chars().collect();
+    delimiter_stack_before(&chars, chars.len())
+}
+fn delimiter_stack_before(chars: &[char], end: usize) -> Vec<char> {
+    let mut stack = Vec::new();
+    let mut index = 0;
+    while index < end {
+        if let Some(span) = code_span_end(chars, index).or_else(|| markdown_link_end(chars, index))
+        {
+            index = span + 1;
+            continue;
+        }
+        match chars[index] {
+            '"' => {
+                if stack.last() == Some(&'"') {
+                    stack.pop();
+                } else {
+                    stack.push('"');
+                }
+            }
+            '“' => stack.push('”'),
+            '”' if stack.last() == Some(&'”') => {
+                stack.pop();
+            }
+            '(' => stack.push(')'),
+            ')' if stack.last() == Some(&')') => {
+                stack.pop();
+            }
+            '（' => stack.push('）'),
+            '）' if stack.last() == Some(&'）') => {
+                stack.pop();
+            }
+            '「' => stack.push('」'),
+            '」' if stack.last() == Some(&'」') => {
+                stack.pop();
+            }
+            '『' => stack.push('』'),
+            '』' if stack.last() == Some(&'』') => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    stack
+}
+/// A citation between a sentence end and the closer that finishes an open quote or parenthesis stays on that sentence.
+fn marker_before_matching_closer(chars: &[char], period: usize, index: usize) -> Option<usize> {
+    let mut stack = delimiter_stack_before(chars, period);
+    if stack.is_empty() {
+        return None;
+    }
+    let mut look = index;
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let marker_end = digit_marker_end(chars, look)?;
+    look = marker_end + 1;
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let before_closers = look;
+    while chars.get(look).is_some_and(|ch| stack.last() == Some(ch)) {
+        stack.pop();
+        look += 1;
+    }
+    (look > before_closers).then_some(look)
 }
 fn sentence_closer(ch: char) -> bool {
     matches!(
