@@ -458,6 +458,30 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "A whole sentence continued.",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "He said \"It works.\" [1]",
+        "[1]",
+        "works",
+        "He said \"It works.\" Next sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "> 主张。\n>\n> [1]",
+        "[1]",
+        "主张",
+        "主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use a | b [1].",
+        "[1]",
+        "Use",
+        "Use a | b.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Run `cmd` now [1].",
+        "[1]",
+        "cmd",
+        "Run cmd now.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
         "stores",

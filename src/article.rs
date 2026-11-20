@@ -282,9 +282,28 @@ fn citation_markers(text: &str) -> Vec<String> {
     markers
 }
 fn strip_article_syntax(sentence: &str) -> String {
-    let without_pipes = sentence.replace('|', "");
-    let plain = strip_emphasis_markers(&strip_markdown_links(&without_pipes)).replace('`', "");
+    let plain = strip_code_spans(&strip_emphasis_markers(&strip_markdown_links(sentence)));
     strip_block_prefix(plain.trim())
+}
+fn strip_code_spans(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('`') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let marks = after.chars().take_while(|ch| *ch == '`').count();
+        let body = &after[marks..];
+        let fence = &after[..marks];
+        if let Some(end) = body.find(fence) {
+            out.push_str(&body[..end]);
+            rest = &body[end + fence.len()..];
+        } else {
+            out.push_str(fence);
+            rest = body;
+        }
+    }
+    out.push_str(rest);
+    out
 }
 fn strip_block_prefix(text: &str) -> String {
     let mut rest = text.trim().to_owned();
@@ -502,7 +521,10 @@ fn markdown_block_break(previous: &str, next: &str) -> bool {
     markdown_block_line(previous_text) && !list_continuation(previous, next)
 }
 fn blockquote_continuation(previous: &str, next: &str) -> bool {
-    previous.starts_with('>') && next.starts_with('>')
+    previous.starts_with('>')
+        && next.starts_with('>')
+        && !blockquote_body(previous).is_empty()
+        && !blockquote_body(next).is_empty()
 }
 fn blockquote_body(line: &str) -> &str {
     let mut rest = line.trim();
@@ -619,17 +641,21 @@ fn sentence_closer(ch: char) -> bool {
     )
 }
 fn english_sentence_period(chars: &[char], index: usize) -> bool {
-    if chars.get(index + 1).copied() == Some('[') {
+    let mut look = index + 1;
+    while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
+        look += 1;
+    }
+    let after_closers = look;
+    if chars.get(look).copied() == Some('[') {
         return !abbreviation_before(chars, index);
     }
-    let mut look = index + 1;
     while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
         look += 1;
     }
     let Some(start) = chars.get(look).copied() else {
         return true;
     };
-    if look == index + 1 {
+    if look == after_closers {
         return false;
     }
     if start == '[' {
