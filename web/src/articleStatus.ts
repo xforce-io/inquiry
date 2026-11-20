@@ -17,8 +17,8 @@ export function runStatusLabel(status: string, checkFailed: boolean): string {
 }
 
 /**
- * 「最终文章 · 已达标」 requires the registered claim-paragraph check to pass.
- * A model semantic pass and a quote that merely occurs in the paragraph do not.
+ * 「最终文章 · 已达标」 requires the claim_paragraph result to pass.
+ * An older citation_integrity pass did not run that check.
  */
 export function finalArticleLabel(input: {
   stage: 'draft' | 'revise';
@@ -28,7 +28,7 @@ export function finalArticleLabel(input: {
   if (input.stage === 'draft') return '初稿 · 不代表最终达标';
   if (input.goalOutcome === 'not_met') return '最终文章 · 未达标';
   const claimPassed = input.results.some(
-    (result) => result.id === 'citation_integrity' && result.verdict === 'pass',
+    (result) => result.id === 'claim_paragraph' && result.verdict === 'pass',
   );
   if (input.stage === 'revise' && input.goalOutcome === 'achieved' && claimPassed) {
     return '最终文章 · 已达标';

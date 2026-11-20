@@ -255,24 +255,38 @@ fn citation_markers(text: &str) -> Vec<String> {
     markers
 }
 fn claim_text(sentence: &str) -> String {
-    let mut kept = String::new();
-    let mut rest = sentence;
-    for marker in citation_markers(sentence) {
-        let Some(start) = rest.find(&marker) else {
-            break;
-        };
-        kept.push_str(&rest[..start]);
-        if kept.ends_with(' ') {
-            kept.pop();
-        }
-        rest = &rest[start + marker.len()..];
-    }
-    kept.push_str(rest);
-    let plain = strip_markdown_links(&kept)
+    let stated = strip_trailing_report_markers(sentence);
+    let plain = strip_markdown_links(&stated)
         .replace("**", "")
         .replace("__", "")
         .replace('`', "");
     strip_list_prefix(plain.trim())
+}
+fn strip_trailing_report_markers(sentence: &str) -> String {
+    let mut text = sentence.trim().to_owned();
+    let terminator = text
+        .chars()
+        .last()
+        .filter(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'));
+    if terminator.is_some() {
+        text.pop();
+        text = text.trim_end().to_owned();
+    }
+    loop {
+        let markers = citation_markers(&text);
+        let Some(last) = markers.last() else {
+            break;
+        };
+        if !text.ends_with(last.as_str()) {
+            break;
+        }
+        text.truncate(text.len() - last.len());
+        text = text.trim_end().to_owned();
+    }
+    if let Some(ch) = terminator {
+        text.push(ch);
+    }
+    text
 }
 fn strip_markdown_links(text: &str) -> String {
     let mut out = String::new();
@@ -322,8 +336,9 @@ fn split_sentences(text: &str) -> Vec<String> {
     let mut current = String::new();
     for (index, ch) in chars.iter().enumerate() {
         current.push(*ch);
+        let next = chars.get(index + 1).copied();
         let boundary = matches!(ch, '\n' | '。' | '！' | '？')
-            || (*ch == '.' && chars.get(index + 1).is_none_or(|next| next.is_whitespace()));
+            || (*ch == '.' && next.is_none_or(|next| next.is_whitespace() || next == '['));
         if boundary {
             let sentence = current.trim().to_owned();
             if !sentence.is_empty() {
@@ -385,10 +400,6 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         if !report.conclusion.contains(&marker) {
             return Err(fault("引用未在正文中使用"));
         }
-        let paragraph = cited_paragraph(c, accepted)?;
-        if !paragraph_states_marked_claims(&report.conclusion, &marker, &c.quote, &paragraph) {
-            return Err(fault("所引段落没有写出带该标记的主张句"));
-        }
         let cjk = c
             .quote
             .chars()
@@ -414,6 +425,19 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
             && !(1..=report.citations.len()).contains(&n)
         {
             return Err(fault("正文引用编号悬空"));
+        }
+    }
+    Ok(())
+}
+/// Marked sentences must be stated by their cited paragraphs.
+/// `article-integrity@1` does not call this. The claim-paragraph rule does.
+pub fn check_claim_sentences(report: &Report, accepted: &[ArtifactData]) -> Result<()> {
+    for (index, citation) in report.citations.iter().enumerate() {
+        let marker = format!("[{}]", index + 1);
+        let paragraph = cited_paragraph(citation, accepted)?;
+        if !paragraph_states_marked_claims(&report.conclusion, &marker, &citation.quote, &paragraph)
+        {
+            return Err(fault("所引段落没有写出带该标记的主张句"));
         }
     }
     Ok(())
@@ -901,9 +925,26 @@ impl Executor for Native {
                     let CheckSubject::Artifacts { targets, .. } = &input.subject else { return Err(fault("需要确切报告目标")); };
                     let report: Report = serde_json::from_value(targets["article"].value.clone())?;
                     let accepted = targets.values().map(|t| ArtifactData { reference: ArtifactRef { id:t.artifact_id.clone(),sha256:t.sha256.clone(),slot:if t.value.get("sources").is_some(){"corpus"}else{"input"}.into(),state_id:"goal".into(),visit:1 },bytes:serde_json::to_vec(&t.value).expect("JSON value").into() }).collect::<Vec<_>>();
-                    let result = check_report(&report, &targets["analysis"].value, &accepted);
-                    let (verdict,message) = match result { Ok(()) => ("pass","引用版本、来源段落、分析血缘和短引文边界通过".to_owned()), Err(e) => ("fail",e.message) };
-                    tools.call("artifact.write", json!({"slot":"evaluation","value":{"protocol_version":1,"verdict":verdict,"results":[{"id":"citation_integrity","verdict":verdict,"message":message,"evidence_refs":input.evidence_refs}],"evidence_refs":input.evidence_refs,"violations":[]}})).await?;
+                    let structural = check_report(&report, &targets["analysis"].value, &accepted).map_err(|error| error.message);
+                    let claim = input.rules.rules.iter().any(|rule| rule.id == "claim_paragraph").then(|| check_claim_sentences(&report, &accepted).map_err(|error| error.message));
+                    let mut results = Vec::new();
+                    for rule in &input.rules.rules {
+                        let (verdict, message) = match rule.id.as_str() {
+                            "citation_integrity" => match &structural {
+                                Ok(()) => ("pass", "引用版本、来源段落、分析血缘和短引文边界通过".to_owned()),
+                                Err(message) => ("fail", message.clone()),
+                            },
+                            "claim_paragraph" => match &claim {
+                                Some(Ok(())) => ("pass", "所引段落写出了带该标记的主张句".to_owned()),
+                                Some(Err(message)) => ("fail", message.clone()),
+                                None => ("error", "主张句规则未执行".to_owned()),
+                            },
+                            _ => ("error", format!("未知验收规则 {}", rule.id)),
+                        };
+                        results.push(json!({"id":rule.id,"verdict":verdict,"message":message,"evidence_refs":input.evidence_refs}));
+                    }
+                    let verdict = if results.iter().any(|result| result["verdict"] == "error") { "error" } else if results.iter().any(|result| result["verdict"] == "fail") { "fail" } else { "pass" };
+                    tools.call("artifact.write", json!({"slot":"evaluation","value":{"protocol_version":1,"verdict":verdict,"results":results,"evidence_refs":input.evidence_refs,"violations":[]}})).await?;
                 }
             }
             Ok(())

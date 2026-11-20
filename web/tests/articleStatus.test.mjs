@@ -16,19 +16,25 @@ test('a quote inside a different statement does not label the final article as �
   assert.equal(label.includes('最终文章 · 已达标'), false);
   assert.equal(runStatusLabel('completed', false), '研究已完成');
   assert.equal(runStatusLabel('completed', false).includes('最终文章 · 已达标'), false);
+  const older = finalArticleLabel({
+    stage: 'revise',
+    goalOutcome: 'achieved',
+    results: [...semantic, { id: 'citation_integrity', verdict: 'pass' }],
+  });
+  assert.equal(older.includes('最终文章 · 已达标'), false);
 });
 
 test('已达标 appears only when the claim-paragraph check passed', () => {
   const passed = finalArticleLabel({
     stage: 'revise',
     goalOutcome: 'achieved',
-    results: [...semantic, { id: 'citation_integrity', verdict: 'pass' }],
+    results: [...semantic, { id: 'claim_paragraph', verdict: 'pass' }],
   });
   assert.equal(passed, '最终文章 · 已达标');
   const withoutClaim = finalArticleLabel({
     stage: 'revise',
     goalOutcome: 'achieved',
-    results: [...semantic, { id: 'citation_integrity', verdict: 'fail' }],
+    results: [...semantic, { id: 'claim_paragraph', verdict: 'fail' }],
   });
   assert.equal(withoutClaim.includes('最终文章 · 已达标'), false);
 });

@@ -115,6 +115,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         paragraph,
     ));
     article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
     report.conclusion =
         "## Mechanism\nSubmit stores the action in the scenario [1].\n## Limits\nConditional conclusion."
             .into();
@@ -125,7 +126,8 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         &quote,
         paragraph,
     ));
-    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_err());
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    assert!(article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_err());
     let stated = "A saved official statement with a real mechanism and limitation";
     for conclusion in [
         format!("{stated} [1][2]."),
@@ -178,6 +180,18 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "Treatment X",
         "The study did not conclude that Treatment X is effective.",
     ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph}[1]"),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Prior work [12] showed X [1].",
+        "[1]",
+        "showed X",
+        "Prior work [12] showed X.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());
@@ -187,6 +201,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
     evidence["id"] = json!("e2");
     analysis["evidence"].as_array_mut().unwrap().push(evidence);
     article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
 }
 #[async_trait]
 impl Executor for Agent {

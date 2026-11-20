@@ -147,7 +147,7 @@ function goalDetail(data:View,id:string){
    if(checkFailed&&selected==='revise')notice(quality,'最终质量检查未完成，当前文章保留可读，不能判为已达标。');
    for(const check of goal.evaluations||[])if(check.error)notice(quality,'检查错误：'+check.check_id+'。已有评价与文章均保留。');
    if(!evaluations.length)quality.append(element('p','muted','尚无针对该确切版本的已接纳评价。'));
-   const names:Record<string,string>={Q1:'问题覆盖',Q2:'机制解释',Q3:'跨源综合',Q4:'论证与证据',Q5:'反证与边界',Q6:'成稿与结论',citation_integrity:'引用核对'};
+   const names:Record<string,string>={Q1:'问题覆盖',Q2:'机制解释',Q3:'跨源综合',Q4:'论证与证据',Q5:'反证与边界',Q6:'成稿与结论',citation_integrity:'引用核对',claim_paragraph:'主张句核对'};
    for(const evaluation of evaluations)for(const result of evaluation.evaluation.results){const block=element('section','quality-item '+result.verdict);block.append(element('h3','',`${names[result.id]||result.id} · ${{pass:'达标',fail:'未达标',error:'检查错误'}[result.verdict]||'待核对'}`),element('p','quality-message',result.message));quality.append(block);}card.append(quality);main.append(card,run);
  }else{main.append(run);const empty=element('section','report-empty');empty.append(element('h2','','文章尚未形成'),element('p','muted','下方保留已接纳的范围、资料与分析。'));main.append(empty);}
  const sources=element('section','sources-card');sources.append(element('h2','','研究资料'));

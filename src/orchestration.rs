@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use taskloop::*;
 
-pub const PROFILE: &str = "inquiry-article@1";
-pub const TEMPLATE: &str = "inquiry-article@1";
+pub const PROFILE: &str = "inquiry-article@2";
+pub const TEMPLATE: &str = "inquiry-article@2";
 pub fn limits() -> GoalLimits {
     GoalLimits {
         max_wall_ms: 1_800_000,
@@ -513,6 +513,52 @@ pub fn registry(
         requirements.push(json!({"id":name,"phase":"goal_final","checker_ref":format!("article-{name}@1"),"rules_digest":digest,"target_outputs":targets,"required":true}));
         plan_checks.insert(name,json!({"phase":"goal_final","checker_ref":format!("article-{name}@1"),"targets":targets}));
     }
+    let claim_rules = vec![
+        json!({"id":"citation_integrity","instruction":"Verify exact saved source bytes, citations and analysis lineage.","pass_condition":"All citation checks pass and report is answered.","evidence_required":true}),
+        json!({"id":"claim_paragraph","instruction":"The cited paragraph must state each marked sentence.","pass_condition":"Each marked sentence equals one whole sentence of its cited paragraph.","evidence_required":true}),
+    ];
+    let claim_digest = r.register_rules(
+        "article-integrity-claim",
+        &serde_json::to_vec(&json!({"protocol_version":1,"id":"article-integrity-claim","version":"1","rules":claim_rules}))?,
+    )?;
+    r.register_entry(
+        "article-integrity@2",
+        entry(
+            "article.integrity",
+            "Check exact source versions, citation lineage, and marked sentences.",
+            "_tl.check-input@1",
+            &["artifact.write"],
+            &[("evaluation", "_tl.evaluation-candidate@1")],
+            false,
+        ),
+        policy("integrity-claim", 30000, 2),
+    )?;
+    r.register_checker(
+        "article-integrity@2",
+        CheckerContract {
+            entry_ref: "article-integrity@2".into(),
+            rules_ref: "article-integrity-claim".into(),
+            result_slot: "evaluation".into(),
+            fresh_context: true,
+            goal_input_fields: vec!["scope".into()],
+        },
+    )?;
+    let requirements_v2 = requirements
+        .iter()
+        .map(|item| {
+            let mut item = item.clone();
+            if item["id"] == "integrity" {
+                item["checker_ref"] = json!("article-integrity@2");
+                item["rules_digest"] = json!(claim_digest);
+            }
+            item
+        })
+        .collect::<Vec<_>>();
+    let mut plan_checks_v2 = plan_checks.clone();
+    plan_checks_v2.insert(
+        "integrity".into(),
+        json!({"phase":"goal_final","checker_ref":"article-integrity@2","targets":["article","analysis","plan","corpus1","corpus2"]}),
+    );
     let goal = json!({"kind":"goal","pointer":"/goal"});
     let mut nodes = BTreeMap::new();
     nodes.insert(
@@ -574,7 +620,8 @@ pub fn registry(
         template_node("article-revise", &["review"], draft_inputs),
     );
     let outputs = json!({"plan":{"node_id":"scope","port":"plan"},"corpus1":{"node_id":"collect","port":"corpus"},"archive1":{"node_id":"collect","port":"archive"},"analysis_initial":{"node_id":"analyze","port":"analysis"},"corpus2":{"node_id":"supplement","port":"corpus"},"archive2":{"node_id":"supplement","port":"archive"},"analysis":{"node_id":"synthesize","port":"analysis"},"draft":{"node_id":"draft","port":"report"},"review":{"node_id":"review","port":"evaluation"},"article":{"node_id":"revise","port":"report"}});
-    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"1","nodes":nodes,"outputs":outputs,"checks":plan_checks}))?)?;
+    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"1","nodes":nodes.clone(),"outputs":outputs.clone(),"checks":plan_checks}))?)?;
+    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"2","nodes":nodes,"outputs":outputs,"checks":plan_checks_v2}))?)?;
     let mut profile_outputs = BTreeMap::new();
     for (alias, schema, cap) in [
         ("plan", "article-plan", "article-scope"),
@@ -615,13 +662,22 @@ pub fn registry(
     if native {
         capabilities.push("article-initial-analysis@1".into());
     }
-    r.register_profile(serde_json::from_value(json!({"id":"inquiry-article","version":"1","goal_input_schema":"article-input","goal_selectors":{"/goal":"article-text"},"planner_entry_ref":"article-planner@1","capabilities":capabilities,"planning_input_schemas":["article-clarification"],"templates":[TEMPLATE],"outputs":profile_outputs,"final_outputs":["article"],"checks":requirements,"allowed_tools":tools()}))?)?;
+    let profile_v1 = json!({"id":"inquiry-article","version":"1","goal_input_schema":"article-input","goal_selectors":{"/goal":"article-text"},"planner_entry_ref":"article-planner@1","capabilities":capabilities.clone(),"planning_input_schemas":["article-clarification"],"templates":["inquiry-article@1"],"outputs":profile_outputs,"final_outputs":["article"],"checks":requirements,"allowed_tools":tools()});
+    let mut profile_v2 = profile_v1.clone();
+    profile_v2["version"] = json!("2");
+    profile_v2["templates"] = json!([TEMPLATE]);
+    profile_v2["checks"] = json!(requirements_v2);
+    r.register_profile(serde_json::from_value(profile_v1)?)?;
+    r.register_profile(serde_json::from_value(profile_v2)?)?;
     let receipt = r.validate_and_freeze(bindings)?;
     let options = OrchestrationOptions {
         grants: BTreeMap::from([(
             "local-readonly".into(),
             GoalGrant {
-                profile_digests: vec![receipt.profiles[PROFILE].clone()],
+                profile_digests: vec![
+                    receipt.profiles["inquiry-article@1"].clone(),
+                    receipt.profiles[PROFILE].clone(),
+                ],
                 capabilities,
                 tools: tools(),
                 limits: limits(),
