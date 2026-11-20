@@ -164,7 +164,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
 /// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
-/// The final period of an initialism such as U.S. ends the sentence when the next word is capitalized. U.S. policy stays one sentence.
+/// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence.
 /// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
@@ -991,10 +991,61 @@ fn sentence_start(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '"' | '\'' | '“' | '‘' | '(' | '（')
 }
 /// A single letter, or one of these written abbreviations, is not a sentence end.
-/// The last letter of an initialism such as `U.S.` is a sentence end when a capitalized word follows.
+/// The last letter of an initialism such as `U.S.` starts a new sentence only when a clause
+/// already precedes it and the next word opens that sentence. `U.S. Government` stays together.
 const ABBREVIATIONS: &[&str] = &[
     "capt", "col", "dr", "eq", "esq", "fig", "gen", "hon", "jr", "mr", "mrs", "ms", "no", "prof",
     "rev", "sec", "sgt", "sr", "st", "vol",
+];
+const SENTENCE_OPENERS: &[&str] = &[
+    "a",
+    "an",
+    "and",
+    "but",
+    "he",
+    "however",
+    "i",
+    "it",
+    "meanwhile",
+    "nor",
+    "or",
+    "she",
+    "so",
+    "still",
+    "that",
+    "the",
+    "then",
+    "therefore",
+    "these",
+    "they",
+    "this",
+    "those",
+    "we",
+    "yet",
+];
+const ORDINARY_SUBJECTS: &[&str] = &[
+    "cost",
+    "costs",
+    "demand",
+    "earnings",
+    "employment",
+    "exports",
+    "growth",
+    "imports",
+    "income",
+    "inflation",
+    "output",
+    "price",
+    "prices",
+    "profit",
+    "profits",
+    "revenue",
+    "sales",
+];
+const FINITE_VERBS: &[&str] = &[
+    "are", "be", "been", "can", "could", "did", "do", "does", "fell", "found", "grew", "had",
+    "has", "have", "is", "may", "might", "must", "rose", "said", "says", "shall", "should",
+    "showed", "shows", "was", "were", "will", "would", "worked", "works",
 ];
 fn abbreviation_before(chars: &[char], period: usize) -> bool {
     let mut start = period;
@@ -1004,14 +1055,64 @@ fn abbreviation_before(chars: &[char], period: usize) -> bool {
     let word: String = chars[start..period].iter().collect();
     if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
         let initialism_end = start > 0 && chars[start - 1] == '.';
-        if initialism_end && next_sentence_is_ascii_uppercase(chars, period) {
+        if initialism_end && initialism_starts_new_sentence(chars, period, start) {
             return false;
         }
         return true;
     }
     ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
 }
-fn next_sentence_is_ascii_uppercase(chars: &[char], period: usize) -> bool {
+fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) -> bool {
+    if !clause_before_initialism(chars, letter) {
+        return false;
+    }
+    let Some((next, after)) = words_after_period(chars, period) else {
+        return false;
+    };
+    let Some(first) = next.chars().next() else {
+        return false;
+    };
+    if !first.is_ascii_uppercase() {
+        return false;
+    }
+    let next = next.to_ascii_lowercase();
+    if SENTENCE_OPENERS.contains(&next.as_str()) {
+        return true;
+    }
+    ORDINARY_SUBJECTS.contains(&next.as_str()) && after.is_some_and(|word| finite_verb(&word))
+}
+fn clause_before_initialism(chars: &[char], letter: usize) -> bool {
+    let mut index = letter;
+    loop {
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+        if chars[index] != '.' {
+            break;
+        }
+        if index == 0 {
+            return false;
+        }
+        let before_dot = index - 1;
+        let single_letter = chars[before_dot].is_ascii_alphabetic()
+            && (before_dot == 0 || !chars[before_dot - 1].is_ascii_alphanumeric());
+        if !single_letter {
+            break;
+        }
+        index = before_dot;
+    }
+    loop {
+        if chars[index].is_ascii_lowercase() {
+            return true;
+        }
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+    }
+}
+fn words_after_period(chars: &[char], period: usize) -> Option<(String, Option<String>)> {
     let mut look = period + 1;
     while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
         look += 1;
@@ -1025,7 +1126,28 @@ fn next_sentence_is_ascii_uppercase(chars: &[char], period: usize) -> bool {
     {
         look += 1;
     }
-    chars.get(look).is_some_and(|ch| ch.is_ascii_uppercase())
+    let (first, mut look) = take_ascii_word(chars, look)?;
+    while chars
+        .get(look)
+        .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '*' | '_' | '`'))
+    {
+        look += 1;
+    }
+    Some((first, take_ascii_word(chars, look).map(|(word, _)| word)))
+}
+fn take_ascii_word(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let mut end = start;
+    while chars.get(end).is_some_and(|ch| ch.is_ascii_alphanumeric()) {
+        end += 1;
+    }
+    (end > start).then(|| (chars[start..end].iter().collect(), end))
+}
+fn finite_verb(word: &str) -> bool {
+    let word = word.to_ascii_lowercase();
+    FINITE_VERBS.contains(&word.as_str())
+        || (word.len() >= 4
+            && word.ends_with("ed")
+            && word.chars().all(|ch| ch.is_ascii_alphabetic()))
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -1042,6 +1164,58 @@ fn cited_paragraph(citation: &Citation, accepted: &[ArtifactData]) -> Result<Str
         .cloned()
         .ok_or_else(|| fault("引用段落不存在"))
 }
+fn quoted_words(text: &str) -> usize {
+    let cjk = text
+        .chars()
+        .filter(|ch| ('\u{3400}'..='\u{9fff}').contains(ch))
+        .count();
+    if cjk == 0 {
+        text.split_whitespace().count()
+    } else {
+        cjk + text
+            .split_whitespace()
+            .filter(|word| word.chars().any(|ch| ch.is_ascii_alphanumeric()))
+            .count()
+    }
+}
+fn copied_claim_text(sentence: &str) -> String {
+    let mut text = normalize_claim(sentence);
+    for marker in citation_markers(&text) {
+        while let Some(next) = remove_rightmost_marker(&text, &marker) {
+            text = normalize_claim(&next);
+        }
+    }
+    normalize_claim(&strip_article_syntax(&text))
+}
+/// Copied marked sentences count toward the same per-URL budget as short quotes.
+/// A short quote already inside a counted sentence is not added again.
+fn quote_budget_addition(
+    conclusion: &str,
+    marker: &str,
+    quote: &str,
+    seen: &mut BTreeSet<String>,
+) -> usize {
+    let quote = normalize_claim(quote);
+    let mut words = 0;
+    let mut quote_inside = false;
+    for claim in marked_claims(conclusion, marker) {
+        let copied = copied_claim_text(&claim);
+        if copied.is_empty() {
+            continue;
+        }
+        if !quote.is_empty() && copied.contains(&quote) {
+            quote_inside = true;
+        }
+        if seen.insert(copied.clone()) {
+            words += quoted_words(&copied);
+        }
+    }
+    if quote_inside {
+        words
+    } else {
+        words + quoted_words(&quote)
+    }
+}
 pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]) -> Result<()> {
     check_analysis(analysis, accepted)?;
     if analysis["decision"] != "ready" || !analysis["gaps"].as_array().is_some_and(|g| g.is_empty())
@@ -1056,6 +1230,7 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         .ok_or_else(|| fault("缺少分析证据"))?;
     let mut used = BTreeSet::new();
     let mut quotes = BTreeMap::<String, usize>::new();
+    let mut counted = BTreeMap::<String, BTreeSet<String>>::new();
     for (index, c) in report.citations.iter().enumerate() {
         let url = verify_citation(c, accepted)?;
         let key = serde_json::to_string(c)?;
@@ -1074,21 +1249,9 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         if !report.conclusion.contains(&marker) {
             return Err(fault("引用未在正文中使用"));
         }
-        let cjk = c
-            .quote
-            .chars()
-            .filter(|x| ('\u{3400}'..='\u{9fff}').contains(x))
-            .count();
-        let words = if cjk == 0 {
-            c.quote.split_whitespace().count()
-        } else {
-            cjk + c
-                .quote
-                .split_whitespace()
-                .filter(|w| w.chars().any(|x| x.is_ascii_alphanumeric()))
-                .count()
-        };
-        *quotes.entry(url).or_default() += words;
+        let seen = counted.entry(url.clone()).or_default();
+        *quotes.entry(url).or_default() +=
+            quote_budget_addition(&report.conclusion, &marker, &c.quote, seen);
     }
     if quotes.values().any(|n| *n > 25) {
         return Err(fault("同一来源累计短引文超过二十五词"));

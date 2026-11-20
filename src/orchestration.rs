@@ -186,7 +186,7 @@ pub(crate) fn opened_comparison_clause(id: &str) -> Option<&'static str> {
     }
 }
 fn marked_sentence_clause() -> &'static str {
-    " A sentence carrying a numeric citation marker must equal one whole sentence of that citation's saved paragraph after the marker and article syntax are removed. Copy that sentence; do not paraphrase it. Unmarked synthesis may stand beside it."
+    " A sentence carrying a numeric citation marker must equal one whole sentence of that citation's saved paragraph after the marker and article syntax are removed. Copy that sentence only when the copied sentences and short quotes for the same URL stay within 25 words; a Chinese character counts as one word, and a short quote already inside a copied sentence is not counted again. Otherwise do not paste the sentence. Do not paraphrase a sentence you paste. Unmarked synthesis may stand beside it."
 }
 fn semantic_pass_conditions() -> [(&'static str, &'static str, &'static str); 6] {
     [
@@ -823,6 +823,8 @@ mod tests {
         let (revise, revise_ms) = registered("article-revise");
         assert!(draft.contains(writing));
         assert!(revise.contains(writing));
+        assert!(marked_sentence_clause().contains("25 words"));
+        assert!(marked_sentence_clause().contains("do not paste the sentence"));
         assert!(!draft.contains(marked_sentence_clause()));
         assert!(!revise.contains(marked_sentence_clause()));
         assert!(

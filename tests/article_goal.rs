@@ -243,6 +243,54 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "policy",
         "U.S. policy is restricted.",
     ));
+    assert!(!article::paragraph_states_marked_claims(
+        "U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.K. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.S. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "The U.S. Government policy is restricted.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Officials said the U.K. Government is restricted [1].",
+        "[1]",
+        "restricted",
+        "Officials said the U.S. Government is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Officials said the U.S. Government is restricted [1].",
+        "[1]",
+        "restricted",
+        "Officials said the U.S. Government is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The policy changed [1].",
+        "[1]",
+        "policy",
+        "We operate in the U.S. The policy changed.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The policy changed [1].",
+        "[1]",
+        "policy",
+        "U.S. The policy changed.",
+    ));
     assert!(article::paragraph_states_marked_claims(
         "The result is significant! [1]",
         "[1]",
@@ -577,6 +625,18 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "found",
         "A. Smith found it.",
     ));
+    assert!(article::paragraph_states_marked_claims(
+        "A. B. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. B. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "B. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. B. Smith found it.",
+    ));
     assert!(!article::paragraph_states_marked_claims(
         "Smith found it [1].",
         "[1]",
@@ -659,6 +719,123 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
     analysis["evidence"].as_array_mut().unwrap().push(evidence);
     article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
     article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+}
+#[test]
+fn copied_sentence_counts_toward_the_quote_budget() {
+    fn fixture(
+        paragraph: &str,
+        quotes: &[&str],
+        conclusion: &str,
+    ) -> (ArtifactData, Report, Value) {
+        let paragraphs = vec![paragraph.to_owned()];
+        let corpus = Corpus {
+            version: 1,
+            round: 1,
+            sources: vec![Source {
+                source_id: "r1s1".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/official",
+                    "requested_url": "https://example.com/official",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())
+                }),
+                paragraphs,
+            }],
+            searches: vec![],
+            limitations: vec![],
+        };
+        let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+        let citations: Vec<Citation> = quotes
+            .iter()
+            .map(|quote| Citation {
+                artifact_id: saved.reference.id.clone(),
+                sha256: saved.reference.sha256.clone(),
+                source_id: "r1s1".into(),
+                paragraph: 0,
+                quote: (*quote).to_owned(),
+            })
+            .collect();
+        let evidence: Vec<_> = citations
+            .iter()
+            .enumerate()
+            .map(|(index, citation)| {
+                let mut item = serde_json::to_value(citation).unwrap();
+                item["id"] = json!(format!("e{}", index + 1));
+                item
+            })
+            .collect();
+        let ids: Vec<_> = (1..=citations.len()).map(|n| format!("e{n}")).collect();
+        let report = Report {
+            answer_status: "answered".into(),
+            conclusion: conclusion.to_owned(),
+            citations,
+            limitations: vec![],
+        };
+        let analysis = json!({
+            "evidence": evidence,
+            "judgments": [{"text": "Supported judgment", "support": ids, "counter": [], "limitations": []}],
+            "decision": "ready",
+            "gaps": [],
+            "coverage": [{"question": "Mechanism", "status": "answered", "conclusion": "A supported mechanism", "evidence_ids": ids}],
+            "search_queries": []
+        });
+        (saved, report, analysis)
+    }
+    fn within_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
+        let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
+        article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_ok()
+    }
+    fn over_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
+        let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
+        article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_err()
+    }
+
+    let long = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
+    assert_eq!(long.split_whitespace().count(), 26);
+    assert!(over_budget(
+        &format!("{long}."),
+        &["Alpha"],
+        &format!("{long} [1]."),
+    ));
+    let fitted = "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+    assert_eq!(fitted.split_whitespace().count(), 20);
+    let quote = "One two three four five six seven eight nine ten";
+    assert_eq!(quote.split_whitespace().count(), 10);
+    assert!(within_budget(
+        &format!("{fitted}."),
+        &[quote],
+        &format!("{fitted} [1]."),
+    ));
+    let first = "One two three four five six seven eight nine ten eleven twelve thirteen";
+    let second = "Fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix";
+    assert_eq!(first.split_whitespace().count(), 13);
+    assert_eq!(second.split_whitespace().count(), 13);
+    assert!(over_budget(
+        &format!("{first}. {second}."),
+        &["One", "Fourteen"],
+        &format!("{first} [1]. {second} [2]."),
+    ));
+    assert!(within_budget(
+        &format!("{first}. {second}."),
+        &["One"],
+        &format!("{first} [1]."),
+    ));
+    let han = "一二三四五六七八九十一二三四五六七八九十一二三四五六";
+    assert_eq!(han.chars().count(), 26);
+    assert!(over_budget(
+        &format!("{han}。"),
+        &["一二"],
+        &format!("{han} [1]。")
+    ));
 }
 #[async_trait]
 impl Executor for Agent {
