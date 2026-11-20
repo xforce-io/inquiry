@@ -1,4 +1,5 @@
 import './style.css';
+import { finalArticleLabel, runStatusLabel } from './articleStatus';
 import { buildCitationAliases, resolveCitationIndex, type Citation, type Evidence } from './citationRefs';
 import { projectRun, renderRun, resetRunView, type RawEvent, type RunMode } from './run-view';
 
@@ -116,8 +117,7 @@ function goalDetail(data:View,id:string){
  const original=element('details','question-full');original.append(element('summary','','完整问题与研究范围'),element('pre','',snapshot.inputs.question+'\n\n研究范围：'+snapshot.inputs.scope));heading.append(original);if(goal.spec.parent_goal_id)heading.append(link('查看前次研究','/research/'+encodeURIComponent(goal.spec.parent_goal_id),'back-link'));main.append(heading);
  const status=element('section','status-card '+snapshot.status),row=element('div','status-row');
  const checkFailed=snapshot.status==='failed'&&(snapshot.progress.phase==='goal_checking'||goal.nodes.review?.status==='failed');
- const labels:Record<string,string>={running:'研究进行中',waiting:'等待澄清或补充',completed:'研究已完成',not_met:'文章未达标',failed:checkFailed?'质量检查未完成':'研究未完成',cancelling:'正在确认停止',cancelled:'已停止',stopped:'研究已暂停',blocked:'研究已阻塞'};
- row.append(element('strong','',labels[snapshot.status]||'状态待核对'));
+ row.append(element('strong','',runStatusLabel(snapshot.status,checkFailed)));
  if(!terminal.has(snapshot.status)&&snapshot.status!=='cancelling')row.append(button('停止研究','quiet danger',()=>void requestCancel(id)));
  row.append(button('刷新','quiet',()=>void load(id,true)));status.append(row);
  if(snapshot.status==='cancelling')status.append(element('p','muted','停止请求已受理，尚在等待实际停止确认。'));
@@ -137,8 +137,8 @@ function goalDetail(data:View,id:string){
    const report=output.value as Report,card=element('section','report-card');const tabs=element('div','version-tabs');
    for(const o of articles){const b=button(o.stage==='revise'?'最终稿':'初稿',o.stage===selected?'primary':'quiet',()=>{selectedVersions.set(id,o.stage!);detail(data,id);});b.setAttribute('aria-pressed',String(o.stage===selected));tabs.append(b);}card.append(tabs);
    const evaluations=(data.evaluations||[]).filter(e=>Object.values(e.subject.targets||{}).some(t=>t.artifact_id===output.artifact.id&&t.sha256===output.artifact.sha256));
-   const finals=evaluations.filter(e=>e.phase==='goal_final');const achieved=selected==='revise'&&goal.outcome==='achieved'&&finals.length===2&&finals.every(e=>e.verdict==='pass');
-   card.append(element('p','eyebrow',selected==='draft'?'初稿 · 不代表最终达标':achieved?'最终文章 · 已达标':goal.outcome==='not_met'?'最终文章 · 未达标':'最终文章 · 评价待核对'));
+   const finals=evaluations.filter(e=>e.phase==='goal_final');
+   card.append(element('p','eyebrow',finalArticleLabel({stage:selected==='revise'?'revise':'draft',goalOutcome:goal.outcome,results:finals.flatMap(e=>e.evaluation.results)})));
    const analysis=data.outputs.find(o=>o.stage==='synthesize'&&o.artifact.slot==='analysis')?.value as {evidence:Evidence[]}|undefined;
    const aliases=buildCitationAliases(report.citations,analysis?.evidence||[]);
    const body=element('article','report-body');markdown(body,report.conclusion,report.citations,id,aliases);card.append(body);

@@ -59,7 +59,7 @@ fn report_and_analysis(a: &ArtifactData) -> (Report, Value) {
         Report {
             answer_status: "answered".into(),
             conclusion:
-                "## Mechanism\nSupported statement [1].\n## Limits\nConditional conclusion.".into(),
+                "## Mechanism\nA saved official statement with a real mechanism and limitation [1].\n## Limits\nConditional conclusion.".into(),
             citations: vec![citation],
             limitations: vec![],
         },
@@ -100,6 +100,32 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
             "{kind}"
         );
     }
+}
+#[test]
+fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
+    let saved = artifact(&serde_json::to_value(package(1)).unwrap());
+    let (mut report, analysis) = report_and_analysis(&saved);
+    let paragraph = "A saved official statement with a real mechanism and limitation.";
+    let quote = report.citations[0].quote.clone();
+    assert!(paragraph.contains(&quote));
+    assert!(article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    report.conclusion =
+        "## Mechanism\nSubmit stores the action in the scenario [1].\n## Limits\nConditional conclusion."
+            .into();
+    assert!(paragraph.contains(&quote));
+    assert!(!article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_err());
 }
 #[async_trait]
 impl Executor for Agent {
@@ -196,7 +222,7 @@ impl Executor for Agent {
                 c.as_object_mut().unwrap().remove("id");
                 (
                     "report",
-                    json!({"answer_status":"answered","conclusion":"## Mechanism\nA supported official statement [1].\n## Boundary\nA conditional conclusion.","citations":[c],"limitations":[]}),
+                    json!({"answer_status":"answered","conclusion":"## Mechanism\nA saved official statement with a real mechanism and limitation [1].\n## Boundary\nA conditional conclusion.","citations":[c],"limitations":[]}),
                 )
             }
             GoalRunRole::NodeMember { node_id, .. } if node_id == "review" => {

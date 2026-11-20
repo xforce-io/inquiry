@@ -152,6 +152,71 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
     }
     Ok(())
 }
+/// The saved paragraph states each sentence that carries this marker.
+/// A short quote inside the paragraph is not enough when the sentence says something else.
+pub fn paragraph_states_marked_claims(
+    conclusion: &str,
+    marker: &str,
+    quote: &str,
+    paragraph: &str,
+) -> bool {
+    if quote.trim().is_empty() || !paragraph.contains(quote) {
+        return false;
+    }
+    let claims = marked_claims(conclusion, marker);
+    !claims.is_empty() && claims.iter().all(|claim| paragraph.contains(claim))
+}
+fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
+    split_sentences(conclusion)
+        .into_iter()
+        .filter(|sentence| sentence.contains(marker))
+        .map(|sentence| {
+            normalize_claim(
+                &sentence
+                    .replace(&format!(" {marker}"), "")
+                    .replace(marker, ""),
+            )
+        })
+        .filter(|claim| !claim.is_empty())
+        .collect()
+}
+fn split_sentences(text: &str) -> Vec<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+    for (index, ch) in chars.iter().enumerate() {
+        current.push(*ch);
+        let boundary = matches!(ch, '\n' | '。' | '！' | '？')
+            || (*ch == '.' && chars.get(index + 1).is_none_or(|next| next.is_whitespace()));
+        if boundary {
+            let sentence = current.trim().to_owned();
+            if !sentence.is_empty() {
+                sentences.push(sentence);
+            }
+            current.clear();
+        }
+    }
+    let tail = current.trim().to_owned();
+    if !tail.is_empty() {
+        sentences.push(tail);
+    }
+    sentences
+}
+fn normalize_claim(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+fn cited_paragraph(citation: &Citation, accepted: &[ArtifactData]) -> Result<String> {
+    let artifact = accepted
+        .iter()
+        .find(|item| item.reference.id == citation.artifact_id)
+        .ok_or_else(|| fault("引用资料包未被授权"))?;
+    let source = source_view(artifact, &citation.source_id)?;
+    source
+        .paragraphs
+        .get(citation.paragraph)
+        .cloned()
+        .ok_or_else(|| fault("引用段落不存在"))
+}
 pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]) -> Result<()> {
     check_analysis(analysis, accepted)?;
     if analysis["decision"] != "ready" || !analysis["gaps"].as_array().is_some_and(|g| g.is_empty())
@@ -180,8 +245,13 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         {
             return Err(fault("报告引入重复或未分析的引用"));
         }
-        if !report.conclusion.contains(&format!("[{}]", index + 1)) {
+        let marker = format!("[{}]", index + 1);
+        if !report.conclusion.contains(&marker) {
             return Err(fault("引用未在正文中使用"));
+        }
+        let paragraph = cited_paragraph(c, accepted)?;
+        if !paragraph_states_marked_claims(&report.conclusion, &marker, &c.quote, &paragraph) {
+            return Err(fault("所引段落没有写出带该标记的主张句"));
         }
         let cjk = c
             .quote
