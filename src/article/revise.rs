@@ -8,6 +8,10 @@ use tokio::sync::Mutex;
 
 /// Reads stop this long before the registered stage cap so one model turn can still submit.
 pub const REVISE_FINALIZE_BEFORE_MS: u64 = 90_000;
+/// Taskloop closes every tool except `artifact.write` while
+/// `remaining_ms <= finalize_before_ms`. Revise keeps this at zero so a
+/// source page is still admitted for the whole 90s host window.
+pub const REVISE_ENTRY_FINALIZE_BEFORE_MS: u64 = 0;
 /// Stop the model and, if it has not submitted, keep an accepted draft or an honest gap before that cap.
 pub const REVISE_HOST_RESERVE_MS: u64 = 25_000;
 /// Distinct saved sources synthesis may open. Repeats and source indexes do not consume this.
@@ -1575,12 +1579,153 @@ mod tests {
         assert!(writes.is_empty());
     }
 
+    /// Same time branches as taskloop `BudgetState::admit_tool_with`: remaining
+    /// time of zero refuses every tool, and any other non-write tool is refused
+    /// while `remaining_ms <= finalize_before_ms`.
+    fn finalize_time_admits(id: &str, remaining_ms: u64, finalize_before_ms: u64) -> bool {
+        if remaining_ms == 0 {
+            return false;
+        }
+        !(id != "artifact.write" && remaining_ms <= finalize_before_ms)
+    }
+
+    struct BudgetIdle;
+    #[async_trait]
+    impl Executor for BudgetIdle {
+        fn enforces_json_candidate_limit(&self) -> bool {
+            true
+        }
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            _: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            ExecutionOutcome::Cancelled
+        }
+    }
+
+    fn register_article_entries() {
+        let agent = Arc::new(BudgetIdle);
+        crate::orchestration::registry(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &crate::orchestration::bindings(agent, "revise-source-admit".into()),
+        )
+        .expect("registered article entries");
+    }
+
+    /// Applies the registered entry's finalize rule, then runs the tool.
+    struct FinalizeGate {
+        finalize_before_ms: u64,
+        inner: SlotTools,
+    }
+    #[async_trait]
+    impl ToolBridge for FinalizeGate {
+        fn specs(&self) -> Vec<ToolSpec> {
+            self.inner.specs()
+        }
+        fn goal_context(&self) -> Option<GoalRunContext> {
+            self.inner.goal_context()
+        }
+        fn json_candidate_limit(&self) -> Option<usize> {
+            self.inner.json_candidate_limit()
+        }
+        fn budget_hint(&self) -> Option<BudgetHint> {
+            self.inner.budget_hint()
+        }
+        async fn reject_json_candidate(
+            &self,
+            bytes: u64,
+            metadata: ToolCallMetadata,
+        ) -> Result<Value> {
+            self.inner.reject_json_candidate(bytes, metadata).await
+        }
+        async fn call(&self, id: &str, args: Value) -> Result<Value> {
+            if !finalize_time_admits(id, self.inner.remaining_ms, self.finalize_before_ms) {
+                return Err(taskloop::Error::new(
+                    "limit_reached",
+                    "/budget/tools",
+                    "tool refused by execution budget; use admitted submission path while budget remains",
+                ));
+            }
+            self.inner.call(id, args).await
+        }
+    }
+
+    fn gate(node: &'static str, finalize_before_ms: u64) -> Arc<FinalizeGate> {
+        Arc::new(FinalizeGate {
+            finalize_before_ms,
+            inner: SlotTools {
+                node,
+                remaining_ms: REVISE_FINALIZE_BEFORE_MS,
+                draft_text: None,
+                writes: Mutex::new(Vec::new()),
+                reads: AtomicU32::new(0),
+                refuse_read: false,
+            },
+        })
+    }
+
     #[tokio::test]
     async fn revise_source_page_inside_the_finalize_window_still_reaches_the_tool() {
-        let (outcome, writes, reads) = draft_page("revise", REVISE_FINALIZE_BEFORE_MS, false).await;
+        register_article_entries();
+        let revise = crate::orchestration::registered_entry_budget("article-revise@2");
+        let draft = crate::orchestration::registered_entry_budget("article-draft@2");
+        assert_eq!(revise.policy_id, "article-revise-claim-v2");
+        assert_eq!(draft.finalize_before_ms, REVISE_FINALIZE_BEFORE_MS);
+        assert!(finalize_time_admits(
+            "inquiry.article_source",
+            REVISE_FINALIZE_BEFORE_MS,
+            revise.finalize_before_ms
+        ));
+        assert!(finalize_time_admits(
+            "inquiry.article_source",
+            1,
+            revise.finalize_before_ms
+        ));
+        assert!(!finalize_time_admits(
+            "inquiry.article_source",
+            REVISE_FINALIZE_BEFORE_MS,
+            draft.finalize_before_ms
+        ));
+        assert!(finalize_time_admits(
+            "artifact.write",
+            REVISE_FINALIZE_BEFORE_MS,
+            draft.finalize_before_ms
+        ));
+
+        let blocked = gate("revise", draft.finalize_before_ms);
+        let refused = blocked
+            .call(
+                "inquiry.article_source",
+                json!({"source_id": "r1s5", "start": 0, "limit": 5}),
+            )
+            .await;
+        assert!(refused.is_err());
+        assert_eq!(blocked.inner.reads.load(Ordering::Acquire), 0);
+        blocked
+            .call("artifact.write", json!({"slot": "report", "value": {}}))
+            .await
+            .expect("report write stays admitted");
+        assert_eq!(blocked.inner.writes.lock().await.len(), 1);
+
+        let tools = gate("revise", revise.finalize_before_ms);
+        let outcome = ReviseGuard(Arc::new(DraftProbe {
+            expect_refuse: false,
+        }))
+        .execute_observed(
+            invocation(Vec::new()),
+            tools.clone(),
+            CancellationToken::new(),
+            None,
+        )
+        .await;
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
-        assert_eq!(reads, 1);
-        assert!(writes.is_empty());
+        assert_eq!(tools.inner.reads.load(Ordering::Acquire), 1);
+        assert!(tools.inner.writes.lock().await.is_empty());
     }
 
     #[tokio::test]
