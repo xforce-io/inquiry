@@ -257,11 +257,27 @@ fn citation_markers(text: &str) -> Vec<String> {
 }
 fn claim_text(sentence: &str) -> String {
     let stated = strip_trailing_report_markers(sentence);
-    let plain = strip_markdown_links(&stated)
-        .replace("**", "")
-        .replace("__", "")
-        .replace('`', "");
+    let plain = strip_emphasis_markers(&strip_markdown_links(&stated)).replace('`', "");
     strip_list_prefix(plain.trim())
+}
+fn strip_emphasis_markers(text: &str) -> String {
+    let text = text.replace("**", "").replace("__", "");
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    for (index, ch) in chars.iter().enumerate() {
+        if matches!(ch, '*' | '_') {
+            let prev_word = index > 0 && chars[index - 1].is_alphanumeric();
+            let next_word = chars
+                .get(index + 1)
+                .is_some_and(|next| next.is_alphanumeric());
+            if prev_word && next_word {
+                out.push(*ch);
+            }
+            continue;
+        }
+        out.push(*ch);
+    }
+    out
 }
 fn strip_trailing_report_markers(sentence: &str) -> String {
     let mut text = sentence.trim().to_owned();
@@ -390,9 +406,8 @@ fn split_sentences(text: &str) -> Vec<String> {
     let mut current = String::new();
     for (index, ch) in chars.iter().enumerate() {
         current.push(*ch);
-        let next = chars.get(index + 1).copied();
-        let boundary = matches!(ch, '\n' | '。' | '！' | '？')
-            || (*ch == '.' && next.is_none_or(|next| next.is_whitespace() || next == '['));
+        let boundary = matches!(ch, '\n' | '。' | '！' | '？' | '!' | '?')
+            || (*ch == '.' && english_sentence_period(&chars, index));
         if boundary {
             let sentence = current.trim().to_owned();
             if !sentence.is_empty() {
@@ -406,6 +421,26 @@ fn split_sentences(text: &str) -> Vec<String> {
         sentences.push(tail);
     }
     sentences
+}
+fn english_sentence_period(chars: &[char], index: usize) -> bool {
+    let next = chars.get(index + 1).copied();
+    next.is_none_or(|next| next.is_whitespace() || next == '[')
+        && !abbreviation_before(chars, index)
+}
+fn abbreviation_before(chars: &[char], period: usize) -> bool {
+    let mut start = period;
+    while start > 0 && chars[start - 1].is_ascii_alphanumeric() {
+        start -= 1;
+    }
+    let word: String = chars[start..period].iter().collect();
+    if word.chars().count() == 1 && chars.get(start).is_some_and(|ch| ch.is_ascii_alphabetic()) {
+        return true;
+    }
+    const ABBREVIATIONS: &[&str] = &[
+        "dr", "mr", "mrs", "ms", "prof", "jr", "sr", "st", "gen", "col", "rev", "hon", "fig", "vs",
+        "etc", "inc", "ltd", "co", "corp",
+    ];
+    ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

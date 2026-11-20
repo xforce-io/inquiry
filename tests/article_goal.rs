@@ -225,6 +225,60 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         &quote,
         paragraph,
     ));
+    assert!(!article::paragraph_states_marked_claims(
+        "U.K. policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.S. policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is significant! [1]",
+        "[1]",
+        "significant",
+        "The result is significant!",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is significant? [1]",
+        "[1]",
+        "significant",
+        "The result is significant?",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is *significant* [1].",
+        "[1]",
+        "significant",
+        "The result is significant.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is _significant_ [1].",
+        "[1]",
+        "significant",
+        "The result is significant.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The file_name is saved [1].",
+        "[1]",
+        "file_name",
+        "The file_name is saved.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Prof. Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Dr. Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());
