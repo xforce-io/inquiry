@@ -172,27 +172,50 @@ pub fn paragraph_states_marked_claims(
     quote: &str,
     paragraph: &str,
 ) -> bool {
-    if quote.trim().is_empty() || !paragraph.contains(quote) {
+    let sentences: Vec<String> = split_sentences(paragraph)
+        .into_iter()
+        .map(|sentence| sentence.text)
+        .collect();
+    paragraph_matches(
+        &marked_claims(conclusion, marker),
+        marker,
+        quote,
+        paragraph,
+        &sentences,
+    )
+}
+fn paragraph_matches(
+    claims: &[String],
+    marker: &str,
+    quote: &str,
+    paragraph: &str,
+    sentences: &[String],
+) -> bool {
+    if quote.trim().is_empty() || !paragraph.contains(quote) || claims.is_empty() {
         return false;
     }
-    let claims = marked_claims(conclusion, marker);
-    !claims.is_empty()
-        && claims.iter().all(|claim| {
-            split_sentences(paragraph)
-                .iter()
-                .any(|sentence| claim_equals_source(claim, marker, &sentence.text))
-        })
+    claims.iter().all(|claim| {
+        sentences
+            .iter()
+            .any(|sentence| claim_equals_source(claim, marker, sentence))
+    })
 }
 fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
-    sentences_with_trailing_markers(conclusion)
-        .into_iter()
-        .filter(|sentence| {
-            citation_markers(sentence)
-                .iter()
-                .any(|found| found == marker)
-        })
-        .filter(|sentence| !strip_article_syntax(sentence).trim().is_empty())
-        .collect()
+    claims_by_marker(conclusion)
+        .remove(marker)
+        .unwrap_or_default()
+}
+fn claims_by_marker(conclusion: &str) -> BTreeMap<String, Vec<String>> {
+    let mut claims: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for sentence in sentences_with_trailing_markers(conclusion) {
+        if strip_article_syntax(&sentence).trim().is_empty() {
+            continue;
+        }
+        for marker in citation_markers(&sentence) {
+            claims.entry(marker).or_default().push(sentence.clone());
+        }
+    }
+    claims
 }
 fn claim_equals_source(article: &str, marker: &str, source: &str) -> bool {
     let source = normalize_claim(source);
@@ -1213,44 +1236,68 @@ fn copied_claim_text(sentence: &str) -> String {
     }
     normalize_claim(&strip_article_syntax(&text))
 }
+fn marker_index(marker: &str) -> Option<usize> {
+    marker
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(|digits| digits.parse::<usize>().ok())
+        .and_then(|number| number.checked_sub(1))
+}
 /// Copied marked sentences count toward the same per-URL budget as short quotes.
+/// One sentence position is counted once per URL. A later paste of the same words is another position.
 /// A short quote already inside a counted sentence is not added again.
-fn quote_budget_addition(
-    sentences: &[String],
-    marker: &str,
-    quote: &str,
-    seen: &mut BTreeSet<usize>,
-) -> usize {
-    let quote = normalize_claim(quote);
-    let mut words = 0;
-    let mut quote_inside = false;
+fn add_copied_sentence_budget(
+    report: &Report,
+    urls: &[String],
+    quotes: &mut BTreeMap<String, usize>,
+) {
+    let sentences = sentences_with_trailing_markers(&report.conclusion);
+    let mut seen: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    let mut quote_inside = vec![false; report.citations.len()];
     for (index, sentence) in sentences.iter().enumerate() {
-        if !citation_markers(sentence)
-            .iter()
-            .any(|found| found == marker)
-            || strip_article_syntax(sentence).trim().is_empty()
-        {
+        if strip_article_syntax(sentence).trim().is_empty() {
+            continue;
+        }
+        let markers = citation_markers(sentence);
+        if markers.is_empty() {
             continue;
         }
         let copied = copied_claim_text(sentence);
         if copied.is_empty() {
             continue;
         }
-        if !quote.is_empty() && copied.contains(&quote) {
-            quote_inside = true;
-        }
-        // The same sentence position can carry two markers. A repeated paste is another position.
-        if seen.insert(index) {
-            words += quoted_words(&copied);
+        let words = quoted_words(&copied);
+        for marker in markers {
+            let Some(cite_index) = marker_index(&marker) else {
+                continue;
+            };
+            let Some(url) = urls.get(cite_index) else {
+                continue;
+            };
+            let quote = normalize_claim(&report.citations[cite_index].quote);
+            if !quote.is_empty() && copied.contains(&quote) {
+                quote_inside[cite_index] = true;
+            }
+            if seen.entry(url.clone()).or_default().insert(index) {
+                *quotes.entry(url.clone()).or_default() += words;
+            }
         }
     }
-    if quote_inside {
-        words
-    } else {
-        words + quoted_words(&quote)
+    for (cite_index, inside) in quote_inside.iter().enumerate() {
+        if !inside {
+            *quotes.entry(urls[cite_index].clone()).or_default() +=
+                quoted_words(&report.citations[cite_index].quote);
+        }
     }
 }
-pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]) -> Result<()> {
+/// `count_copied_sentences` is true only for the claim-paragraph checker.
+/// `article-integrity@1` counts short quotes alone, as it did before that rule existed.
+pub fn check_report(
+    report: &Report,
+    analysis: &Value,
+    accepted: &[ArtifactData],
+    count_copied_sentences: bool,
+) -> Result<()> {
     check_analysis(analysis, accepted)?;
     if analysis["decision"] != "ready" || !analysis["gaps"].as_array().is_some_and(|g| g.is_empty())
     {
@@ -1264,8 +1311,7 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         .ok_or_else(|| fault("缺少分析证据"))?;
     let mut used = BTreeSet::new();
     let mut quotes = BTreeMap::<String, usize>::new();
-    let mut counted = BTreeMap::<String, BTreeSet<usize>>::new();
-    let sentences = sentences_with_trailing_markers(&report.conclusion);
+    let mut urls = Vec::with_capacity(report.citations.len());
     for (index, c) in report.citations.iter().enumerate() {
         let url = verify_citation(c, accepted)?;
         let key = serde_json::to_string(c)?;
@@ -1284,9 +1330,14 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         if !report.conclusion.contains(&marker) {
             return Err(fault("引用未在正文中使用"));
         }
-        let seen = counted.entry(url.clone()).or_default();
-        *quotes.entry(url).or_default() +=
-            quote_budget_addition(&sentences, &marker, &c.quote, seen);
+        if count_copied_sentences {
+            urls.push(url);
+        } else {
+            *quotes.entry(url).or_default() += quoted_words(&c.quote);
+        }
+    }
+    if count_copied_sentences {
+        add_copied_sentence_budget(report, &urls, &mut quotes);
     }
     if quotes.values().any(|n| *n > 25) {
         return Err(fault("同一来源累计短引文超过二十五词"));
@@ -1304,11 +1355,26 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
 /// Marked sentences must be stated by their cited paragraphs.
 /// `article-integrity@1` does not call this. The claim-paragraph rule does.
 pub fn check_claim_sentences(report: &Report, accepted: &[ArtifactData]) -> Result<()> {
+    let claims = claims_by_marker(&report.conclusion);
+    let mut cached: BTreeMap<(String, String, usize), (String, Vec<String>)> = BTreeMap::new();
     for (index, citation) in report.citations.iter().enumerate() {
         let marker = format!("[{}]", index + 1);
-        let paragraph = cited_paragraph(citation, accepted)?;
-        if !paragraph_states_marked_claims(&report.conclusion, &marker, &citation.quote, &paragraph)
-        {
+        let key = (
+            citation.artifact_id.clone(),
+            citation.source_id.clone(),
+            citation.paragraph,
+        );
+        if !cached.contains_key(&key) {
+            let paragraph = cited_paragraph(citation, accepted)?;
+            let sentences = split_sentences(&paragraph)
+                .into_iter()
+                .map(|sentence| sentence.text)
+                .collect();
+            cached.insert(key.clone(), (paragraph, sentences));
+        }
+        let (paragraph, sentences) = &cached[&key];
+        let marked = claims.get(&marker).map(Vec::as_slice).unwrap_or(&[]);
+        if !paragraph_matches(marked, &marker, &citation.quote, paragraph, sentences) {
             return Err(fault("所引段落没有写出带该标记的主张句"));
         }
     }
@@ -1797,8 +1863,9 @@ impl Executor for Native {
                     let CheckSubject::Artifacts { targets, .. } = &input.subject else { return Err(fault("需要确切报告目标")); };
                     let report: Report = serde_json::from_value(targets["article"].value.clone())?;
                     let accepted = targets.values().map(|t| ArtifactData { reference: ArtifactRef { id:t.artifact_id.clone(),sha256:t.sha256.clone(),slot:if t.value.get("sources").is_some(){"corpus"}else{"input"}.into(),state_id:"goal".into(),visit:1 },bytes:serde_json::to_vec(&t.value).expect("JSON value").into() }).collect::<Vec<_>>();
-                    let structural = check_report(&report, &targets["analysis"].value, &accepted).map_err(|error| error.message);
-                    let claim = input.rules.rules.iter().any(|rule| rule.id == "claim_paragraph").then(|| check_claim_sentences(&report, &accepted).map_err(|error| error.message));
+                    let count_copied = input.rules.rules.iter().any(|rule| rule.id == "claim_paragraph");
+                    let structural = check_report(&report, &targets["analysis"].value, &accepted, count_copied).map_err(|error| error.message);
+                    let claim = count_copied.then(|| check_claim_sentences(&report, &accepted).map_err(|error| error.message));
                     let mut results = Vec::new();
                     for rule in &input.rules.rules {
                         let (verdict, message) = match rule.id.as_str() {

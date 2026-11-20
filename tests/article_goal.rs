@@ -70,7 +70,7 @@ fn report_and_analysis(a: &ArtifactData) -> (Report, Value) {
 fn exact_source_versions_and_analysis_lineage_are_required() {
     let a = artifact(&serde_json::to_value(package(1)).unwrap());
     let (report, analysis) = report_and_analysis(&a);
-    article::check_report(&report, &analysis, std::slice::from_ref(&a)).unwrap();
+    article::check_report(&report, &analysis, std::slice::from_ref(&a), false).unwrap();
     for kind in [
         "version",
         "source",
@@ -96,7 +96,7 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
             _ => r.answer_status = "insufficient_evidence".into(),
         }
         assert!(
-            article::check_report(&r, &an, std::slice::from_ref(&a)).is_err(),
+            article::check_report(&r, &an, std::slice::from_ref(&a), false).is_err(),
             "{kind}"
         );
     }
@@ -114,7 +114,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         &quote,
         paragraph,
     ));
-    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
     article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
     report.conclusion =
         "## Mechanism\nSubmit stores the action in the scenario [1].\n## Limits\nConditional conclusion."
@@ -126,7 +126,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         &quote,
         paragraph,
     ));
-    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
     assert!(article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_err());
     let stated = "A saved official statement with a real mechanism and limitation";
     for conclusion in [
@@ -741,7 +741,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
     let mut evidence = serde_json::to_value(&second).unwrap();
     evidence["id"] = json!("e2");
     analysis["evidence"].as_array_mut().unwrap().push(evidence);
-    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
     article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
 }
 #[test]
@@ -815,12 +815,13 @@ fn copied_sentence_counts_toward_the_quote_budget() {
     fn within_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
         let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
         article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
-            && article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_ok()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved), true).is_ok()
     }
     fn over_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
         let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
         article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
-            && article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_err()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved), true)
+                .is_err()
     }
 
     let long = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
@@ -830,6 +831,9 @@ fn copied_sentence_counts_toward_the_quote_budget() {
         &["Alpha"],
         &format!("{long} [1]."),
     ));
+    let (saved, report, analysis) =
+        fixture(&format!("{long}."), &["Alpha"], &format!("{long} [1]."));
+    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).is_ok());
     let fitted = "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
     assert_eq!(fitted.split_whitespace().count(), 20);
     let quote = "One two three four five six seven eight nine ten";
@@ -870,6 +874,57 @@ fn copied_sentence_counts_toward_the_quote_budget() {
         &["一二"],
         &format!("{han} [1]。")
     ));
+}
+#[test]
+fn many_marked_sentences_are_checked_without_reparsing_each_citation() {
+    let sentence = "Alpha sentence is saved exactly";
+    let paragraphs = vec![format!("{sentence}.")];
+    let corpus = Corpus {
+        version: 1,
+        round: 1,
+        sources: vec![Source {
+            source_id: "r1s1".into(),
+            origin: "user-input".into(),
+            fact: json!({
+                "usable": true,
+                "final_url": "https://example.com/official",
+                "requested_url": "https://example.com/official",
+                "title": "Controlled source (synthetic)",
+                "reason": "Controlled saved paragraph, not real research",
+                "captured_at": "2026-11-12T17:00:00Z",
+                "fetch_status": "captured",
+                "http_status": 200,
+                "truncated": false,
+                "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())
+            }),
+            paragraphs,
+        }],
+        searches: vec![],
+        limitations: vec![],
+    };
+    let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+    let mut conclusion = format!("{}.", "background ".repeat(20_000).trim());
+    let citations = (1..=100)
+        .map(|n| {
+            conclusion.push_str(&format!(" {sentence} [{n}]."));
+            Citation {
+                artifact_id: saved.reference.id.clone(),
+                sha256: saved.reference.sha256.clone(),
+                source_id: "r1s1".into(),
+                paragraph: 0,
+                quote: "Alpha".into(),
+            }
+        })
+        .collect();
+    let report = Report {
+        answer_status: "answered".into(),
+        conclusion,
+        citations,
+        limitations: vec![],
+    };
+    let started = std::time::Instant::now();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 #[async_trait]
 impl Executor for Agent {
