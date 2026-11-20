@@ -159,9 +159,9 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
-/// A period ends an English sentence before a citation marker, at the end of the text, or when the next sentence starts, including a sentence that starts with a digit.
-/// A single letter or a listed abbreviation such as Dr., Eq., or Prof. stays in the sentence. Ordinary words such as May or Rust do not.
-/// A heading mark or blockquote mark before the sentence is article syntax.
+/// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
+/// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
+/// A Markdown heading is article syntax only when the hash marks are followed by a space. A blockquote mark is too.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -292,8 +292,8 @@ fn strip_block_prefix(text: &str) -> String {
         let trimmed = rest.trim();
         if let Some(after) = trimmed.strip_prefix('>') {
             rest = after.trim_start().to_owned();
-        } else if trimmed.starts_with('#') {
-            rest = trimmed.trim_start_matches('#').trim_start().to_owned();
+        } else if let Some(after) = heading_body(trimmed) {
+            rest = after.to_owned();
         } else {
             let listed = strip_list_prefix(trimmed);
             if listed.trim() == trimmed {
@@ -303,6 +303,14 @@ fn strip_block_prefix(text: &str) -> String {
         }
     }
     rest
+}
+fn heading_body(text: &str) -> Option<&str> {
+    let marks = text.bytes().take_while(|byte| *byte == b'#').count();
+    if (1..=6).contains(&marks) && text.as_bytes().get(marks) == Some(&b' ') {
+        Some(text[marks..].trim_start())
+    } else {
+        None
+    }
 }
 fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
     let bytes = text.as_bytes();
@@ -556,7 +564,7 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
 }
 fn english_sentence_period(chars: &[char], index: usize) -> bool {
     if chars.get(index + 1).copied() == Some('[') {
-        return true;
+        return !abbreviation_before(chars, index);
     }
     let mut look = index + 1;
     while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
@@ -565,14 +573,16 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
     let Some(start) = chars.get(look).copied() else {
         return true;
     };
+    if look == index + 1 {
+        return false;
+    }
     if start == '[' {
-        return true;
+        return !abbreviation_before(chars, index);
     }
     sentence_start(start) && !abbreviation_before(chars, index)
 }
 fn sentence_start(ch: char) -> bool {
-    ch.is_ascii_digit()
-        || ch.is_uppercase()
+    ch.is_ascii_alphanumeric()
         || ('\u{3400}'..='\u{9fff}').contains(&ch)
         || matches!(ch, '"' | '\'' | '“' | '‘' | '(')
 }

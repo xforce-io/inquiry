@@ -385,6 +385,42 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "stores",
         "The system stores events.",
     ));
+    assert!(!article::paragraph_states_marked_claims(
+        "0 improves performance [1].",
+        "[1]",
+        "improves",
+        "Version 2.0 improves performance.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Version 2.0 improves performance [1].",
+        "[1]",
+        "improves",
+        "Version 2.0 improves performance.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Dr. [1] Smith found it.",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "eBay grew [1].",
+        "[1]",
+        "grew",
+        "First sentence. eBay grew.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "#Growth accelerated [1].",
+        "[1]",
+        "accelerated",
+        "Growth accelerated.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "## Growth accelerated [1].",
+        "[1]",
+        "accelerated",
+        "Growth accelerated.",
+    ));
     assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
