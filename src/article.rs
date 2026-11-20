@@ -1084,7 +1084,8 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
 fn sentence_start(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '"' | '\'' | '“' | '‘' | '(' | '（')
 }
-/// A single letter, or one of these written abbreviations, is not a sentence end.
+/// A single letter, or one of these written abbreviations, is not a sentence end
+/// unless the next word opens a sentence, as in `Acme Inc. Revenue rose.`
 /// The last letter of an initialism such as `U.S.` starts a new sentence only when a clause
 /// already precedes it and the next word opens that sentence. `U.S. Government` stays together.
 const ABBREVIATIONS: &[&str] = &[
@@ -1152,6 +1153,7 @@ fn abbreviation_before(chars: &[char], period: usize) -> bool {
         return !letter_ends_sentence(chars, period, start);
     }
     ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
+        && !sentence_opens_after(chars, period)
 }
 fn letter_ends_sentence(chars: &[char], period: usize, letter: usize) -> bool {
     let initialism_end = letter > 0 && chars[letter - 1] == '.';

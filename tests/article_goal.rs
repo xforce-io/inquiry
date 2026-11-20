@@ -345,6 +345,18 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "reported",
         "Acme Inc. reported a loss.",
     ));
+    assert!(article::paragraph_states_marked_claims(
+        "Revenue rose [1].",
+        "[1]",
+        "Revenue",
+        "Acme Inc. Revenue rose.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Costs rose [1].",
+        "[1]",
+        "rose",
+        "Acme Inc. Revenue rose.",
+    ));
     for suffix in ["Ltd", "Co", "Corp", "Plc"] {
         assert!(
             !article::paragraph_states_marked_claims(
