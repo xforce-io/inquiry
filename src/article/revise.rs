@@ -1,5 +1,6 @@
 //! Required outputs must finish before the effective deadline. A late return is a failed run even when the artifact was written.
 use super::*;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -155,6 +156,12 @@ impl ReportBridge {
             return Ok(refusal);
         }
         if id == "inquiry.article_source"
+            && self.is_draft_stage()
+            && let Some(refusal) = self.admit_draft_read(&args)
+        {
+            return Ok(refusal);
+        }
+        if id == "inquiry.article_source"
             && self.output_slot == "analysis"
             && let Some(refusal) = self.admit_synthesis_read(&args)
         {
@@ -205,6 +212,34 @@ impl ReportBridge {
         };
         self.report_written.store(true, Ordering::Release);
         Ok(result)
+    }
+
+    /// Draft and revise both publish slot `report`. The page refusal is the
+    /// draft node only, so revise can still open a source while copying a draft.
+    fn is_draft_stage(&self) -> bool {
+        matches!(
+            self.goal_context().map(|ctx| ctx.role),
+            Some(GoalRunRole::NodeMember { node_id, .. }) if node_id == "draft"
+        )
+    }
+
+    fn admit_draft_read(&self, args: &Value) -> Option<Value> {
+        let page = args["source_id"]
+            .as_str()
+            .is_some_and(|source_id| !source_id.is_empty());
+        if !page {
+            return None;
+        }
+        let reserved = self
+            .inner
+            .budget_hint()
+            .is_some_and(|hint| hint.remaining_ms <= REVISE_FINALIZE_BEFORE_MS);
+        if reserved {
+            return Some(model_refusal(
+                "初稿的来源页已够提交报告，请立刻停止翻页并提交报告",
+            ));
+        }
+        None
     }
 
     fn admit_review_read(&self) -> Option<Value> {
@@ -350,12 +385,31 @@ async fn saved_draft(inv: &Invocation, tools: &Arc<dyn ToolBridge>) -> Option<Va
     let draft = inv
         .artifacts
         .iter()
-        .find(|artifact| is_accepted_draft(artifact))?;
-    let response = tools
-        .call("artifact.read", json!({"id": draft.id}))
-        .await
-        .ok()?;
-    accepted_draft(response["text"].as_str()?)
+        .find(|artifact| is_accepted_draft(artifact))?
+        .clone();
+    match tools.call("artifact.read", json!({"id": draft.id})).await {
+        Ok(response) => accepted_draft(response["text"].as_str()?),
+        // Inside the finalize window the budget refuses the read. The accepted
+        // draft is already on disk; load that blob when its digest matches.
+        Err(error) if error.code == "limit_reached" => draft_from_blob(inv, &draft),
+        Err(_) => None,
+    }
+}
+
+fn blob_bytes(work_dir: &std::path::Path, hash: &str) -> Option<Vec<u8>> {
+    let hash = hash.to_ascii_lowercase();
+    if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let path = work_dir.parent()?.parent()?.join("blobs").join(&hash);
+    let bytes = std::fs::read(path).ok()?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    (digest == hash).then_some(bytes)
+}
+
+fn draft_from_blob(inv: &Invocation, draft: &ArtifactRef) -> Option<Value> {
+    let bytes = blob_bytes(&inv.work_dir, &draft.sha256)?;
+    accepted_draft(std::str::from_utf8(&bytes).ok()?)
 }
 
 impl ReviseGuard {
@@ -367,9 +421,14 @@ impl ReviseGuard {
             };
         }
         let Some(draft) = draft else {
+            let message = if bridge.is_draft_stage() {
+                "初稿未在时限内提交报告"
+            } else {
+                "未在时限内提交报告，且没有可沿用的已接受草稿"
+            };
             return ExecutionOutcome::Failed {
                 code: "limit_reached".into(),
-                message: "未在时限内提交报告，且没有可沿用的已接受草稿".into(),
+                message: message.into(),
             };
         };
         match bridge
@@ -569,6 +628,7 @@ impl Executor for ReviseGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::sync::atomic::AtomicU32;
 
     fn shown_refusal(result: Result<Value>) -> String {
@@ -765,6 +825,7 @@ mod tests {
         draft_text: Option<String>,
         writes: Mutex<Vec<Value>>,
         reads: AtomicU32,
+        refuse_read: bool,
     }
     #[async_trait]
     impl ToolBridge for SlotTools {
@@ -807,6 +868,13 @@ mod tests {
                     Ok(json!({}))
                 }
                 "artifact.read" => {
+                    if self.refuse_read {
+                        return Err(taskloop::Error::new(
+                            "limit_reached",
+                            "/budget/tools",
+                            "tool refused by execution budget",
+                        ));
+                    }
                     let id = args.get("id").and_then(Value::as_str).unwrap_or("");
                     let text = if id == "other-report" {
                         "{\"answer_status\":\"answered\",\"citations\":[{\"quote\":\"别的节点\",\"source_id\":\"r9s9\",\"paragraph\":1,\"artifact_id\":\"other\",\"sha256\":\"fff\"}]}".to_string()
@@ -912,6 +980,7 @@ mod tests {
             draft_text: draft.as_ref().map(|value| value.to_string()),
             writes: Mutex::new(Vec::new()),
             reads: AtomicU32::new(0),
+            refuse_read: false,
         });
         let guard = ReviseGuard(Arc::new(Scripted { write }));
         let bridge: Arc<dyn ToolBridge> = tools.clone();
@@ -1245,6 +1314,7 @@ mod tests {
             draft_text: None,
             writes: Mutex::new(Vec::new()),
             reads: AtomicU32::new(0),
+            refuse_read: false,
         });
         let guard = ReviseGuard(Arc::new(paging));
         let outcome = guard
@@ -1364,6 +1434,7 @@ mod tests {
             draft_text: None,
             writes: Mutex::new(Vec::new()),
             reads: AtomicU32::new(0),
+            refuse_read: false,
         });
         let guard = ReviseGuard(Arc::new(ReviewProbe { expect_refuse }));
         let outcome = guard
@@ -1397,6 +1468,243 @@ mod tests {
         let (outcome, writes, reads) = review_page(REVISE_FINALIZE_BEFORE_MS + 1, false).await;
         assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
         assert_eq!(reads, 1);
+        assert!(writes.is_empty());
+    }
+
+    struct DraftProbe {
+        expect_refuse: bool,
+    }
+    #[async_trait]
+    impl Executor for DraftProbe {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            tools: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            let result = tools
+                .call(
+                    "inquiry.article_source",
+                    json!({"source_id": "r1s5", "start": 0, "limit": 5}),
+                )
+                .await;
+            if self.expect_refuse {
+                let message = shown_refusal(result);
+                assert_eq!(
+                    message,
+                    "初稿的来源页已够提交报告，请立刻停止翻页并提交报告"
+                );
+                tools
+                    .call(
+                        "artifact.write",
+                        json!({
+                            "slot": "report",
+                            "value": {
+                                "answer_status": "answered",
+                                "conclusion": "初稿已交",
+                                "citations": [],
+                                "limitations": []
+                            }
+                        }),
+                    )
+                    .await
+                    .expect("report write");
+                return ExecutionOutcome::Failed {
+                    code: "limit_reached".into(),
+                    message: "execution deadline exceeded".into(),
+                };
+            }
+            result.expect("draft source read reaches the tool");
+            ExecutionOutcome::Completed {
+                usage: json!({"submission": "model"}),
+            }
+        }
+    }
+
+    async fn draft_page(
+        node: &'static str,
+        remaining_ms: u64,
+        expect_refuse: bool,
+    ) -> (ExecutionOutcome, Vec<Value>, u32) {
+        let tools = Arc::new(SlotTools {
+            node,
+            remaining_ms,
+            draft_text: None,
+            writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
+            refuse_read: false,
+        });
+        let guard = ReviseGuard(Arc::new(DraftProbe { expect_refuse }));
+        let outcome = guard
+            .execute_observed(
+                invocation(Vec::new()),
+                tools.clone(),
+                CancellationToken::new(),
+                None,
+            )
+            .await;
+        let writes = tools.writes.lock().await.clone();
+        let reads = tools.reads.load(Ordering::Acquire);
+        (outcome, writes, reads)
+    }
+
+    #[tokio::test]
+    async fn draft_refuses_a_source_page_inside_the_finalize_window_and_keeps_the_report() {
+        let (outcome, writes, reads) = draft_page("draft", REVISE_FINALIZE_BEFORE_MS, true).await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "report_written");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(reads, 0);
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["slot"], "report");
+        assert_eq!(writes[0]["value"]["conclusion"], "初稿已交");
+    }
+
+    #[tokio::test]
+    async fn draft_source_page_outside_the_finalize_window_reaches_the_tool() {
+        let (outcome, writes, reads) =
+            draft_page("draft", REVISE_FINALIZE_BEFORE_MS + 1, false).await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(reads, 1);
+        assert!(writes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn revise_source_page_inside_the_finalize_window_still_reaches_the_tool() {
+        let (outcome, writes, reads) = draft_page("revise", REVISE_FINALIZE_BEFORE_MS, false).await;
+        assert!(matches!(outcome, ExecutionOutcome::Completed { .. }));
+        assert_eq!(reads, 1);
+        assert!(writes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn draft_without_a_report_uses_a_distinct_failure() {
+        let (outcome, writes) = drive("draft", 0, None, None).await;
+        match outcome {
+            ExecutionOutcome::Failed { code, message } => {
+                assert_eq!(code, "limit_reached");
+                assert_eq!(message, "初稿未在时限内提交报告");
+                assert_ne!(message, "未在时限内提交报告，且没有可沿用的已接受草稿");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(writes.is_empty());
+    }
+
+    struct MissedDeadline;
+    #[async_trait]
+    impl Executor for MissedDeadline {
+        fn capabilities(&self) -> ExecutorCapabilities {
+            ExecutorCapabilities::MANAGED
+        }
+        async fn execute(
+            &self,
+            _: Invocation,
+            _: Arc<dyn ToolBridge>,
+            _: CancellationToken,
+        ) -> ExecutionOutcome {
+            ExecutionOutcome::Failed {
+                code: "limit_reached".into(),
+                message: "execution deadline exceeded".into(),
+            }
+        }
+    }
+
+    fn install_draft_blob(draft: &Value, matching: bool) -> (std::path::PathBuf, String) {
+        let bytes = serde_json::to_vec(draft).unwrap();
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        let root = std::env::temp_dir().join(format!(
+            "inquiry-draft-blob-{}-{}",
+            std::process::id(),
+            &hash[..8]
+        ));
+        let work_dir = root.join("runs").join("run-1");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        std::fs::create_dir_all(root.join("blobs")).unwrap();
+        let stored = if matching { bytes } else { b"{}".to_vec() };
+        std::fs::write(root.join("blobs").join(&hash), stored).unwrap();
+        (work_dir, hash)
+    }
+
+    async fn revise_misses_with_refused_read(
+        work_dir: std::path::PathBuf,
+        hash: String,
+    ) -> (ExecutionOutcome, Vec<Value>) {
+        let root = work_dir
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("work dir sits under runs")
+            .to_path_buf();
+        let tools = Arc::new(SlotTools {
+            node: "revise",
+            remaining_ms: REVISE_FINALIZE_BEFORE_MS,
+            draft_text: None,
+            writes: Mutex::new(Vec::new()),
+            reads: AtomicU32::new(0),
+            refuse_read: true,
+        });
+        let mut inv = invocation(vec![artifact_ref("draft-1", "report", "_tl.node.draft")]);
+        inv.work_dir = work_dir;
+        inv.artifacts[0].sha256 = hash;
+        let outcome = ReviseGuard(Arc::new(MissedDeadline))
+            .execute_observed(inv, tools.clone(), CancellationToken::new(), None)
+            .await;
+        let writes = tools.writes.lock().await.clone();
+        let _ = std::fs::remove_dir_all(root);
+        (outcome, writes)
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_reuses_the_matching_draft_blob_when_the_read_is_refused() {
+        let draft = public_draft();
+        let (work_dir, hash) = install_draft_blob(&draft, true);
+        let (outcome, writes) = revise_misses_with_refused_read(work_dir, hash).await;
+        match outcome {
+            ExecutionOutcome::Completed { usage } => {
+                assert_eq!(usage["submission"], "deadline_draft");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["slot"], "report");
+        assert_eq!(writes[0]["value"], draft);
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_fails_without_a_report_when_the_draft_blob_is_missing() {
+        let root =
+            std::env::temp_dir().join(format!("inquiry-draft-missing-{}", std::process::id()));
+        let work_dir = root.join("runs").join("run-1");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        let (outcome, writes) = revise_misses_with_refused_read(work_dir, "a".repeat(64)).await;
+        match outcome {
+            ExecutionOutcome::Failed { code, message } => {
+                assert_eq!(code, "limit_reached");
+                assert_eq!(message, "未在时限内提交报告，且没有可沿用的已接受草稿");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(writes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn revise_reserve_does_not_reuse_a_blob_whose_digest_differs() {
+        let draft = public_draft();
+        let (work_dir, hash) = install_draft_blob(&draft, false);
+        let (outcome, writes) = revise_misses_with_refused_read(work_dir, hash).await;
+        match outcome {
+            ExecutionOutcome::Failed { code, message } => {
+                assert_eq!(code, "limit_reached");
+                assert_eq!(message, "未在时限内提交报告，且没有可沿用的已接受草稿");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
         assert!(writes.is_empty());
     }
 
@@ -1505,6 +1813,7 @@ mod tests {
             draft_text: None,
             writes: Mutex::new(Vec::new()),
             reads: AtomicU32::new(0),
+            refuse_read: false,
         });
         let outcome = ReviseGuard(Arc::new(Breadth))
             .execute_observed(
