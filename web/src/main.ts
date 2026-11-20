@@ -62,13 +62,17 @@ function researchError(error:NonNullable<Snapshot['error']>){
  return '本阶段执行或检查未能完成，已有成果仍保留。请核对原因后再决定是否新建研究。';
 }
 function inline(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
- for(const piece of splitInline(text)){
+ appendInline(parent,splitInline(text),citations,id,aliases);
+}
+function appendInline(parent:HTMLElement,pieces:ReturnType<typeof splitInline>,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
+ for(const piece of pieces){
   if(piece.kind==='text'){parent.append(document.createTextNode(piece.text));continue;}
-  if(piece.kind==='strong'||piece.kind==='em'||piece.kind==='code'){parent.append(element(piece.kind==='strong'?'strong':piece.kind==='em'?'em':'code','',piece.text));continue;}
+  if(piece.kind==='code'){parent.append(element('code','',piece.text));continue;}
+  if(piece.kind==='strong'||piece.kind==='em'){const node=element(piece.kind==='strong'?'strong':'em');appendInline(node,piece.children,citations,id,aliases);parent.append(node);continue;}
   if(piece.kind==='link'){
    const href=httpHref(piece.href);
-   if(!href){inline(parent,piece.label,citations,id,aliases);continue;}
-   const anchor=document.createElement('a');anchor.href=href;anchor.rel='noreferrer noopener';anchor.target='_blank';inline(anchor,piece.label,citations,id,aliases);parent.append(anchor);continue;
+   if(!href){appendInline(parent,piece.children,citations,id,aliases);continue;}
+   const anchor=document.createElement('a');anchor.href=href;anchor.rel='noreferrer noopener';anchor.target='_blank';appendInline(anchor,piece.children,citations,id,aliases);parent.append(anchor);continue;
   }
   const index=resolveCitationIndex(piece.marker.slice(1,-1),citations.length,aliases);
   if(index!==undefined){

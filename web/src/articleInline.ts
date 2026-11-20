@@ -1,9 +1,9 @@
 export type InlinePiece =
   | { kind: 'text'; text: string }
-  | { kind: 'strong'; text: string }
-  | { kind: 'em'; text: string }
+  | { kind: 'strong'; children: InlinePiece[] }
+  | { kind: 'em'; children: InlinePiece[] }
   | { kind: 'code'; text: string }
-  | { kind: 'link'; label: string; href: string }
+  | { kind: 'link'; href: string; children: InlinePiece[] }
   | { kind: 'cite'; marker: string };
 
 /** Visible article syntax. Code spans stay literal. A digit marker such as [1] stays a citation. */
@@ -46,15 +46,24 @@ function takeToken(text: string, index: number): { piece: InlinePiece; end: numb
   const code = codeSpan(text, index);
   if (code) return { piece: { kind: 'code', text: code.body }, end: code.end };
   const strong = paired(text, index, '**', false);
-  if (strong) return { piece: { kind: 'strong', text: strong.inside }, end: strong.end };
+  if (strong) {
+    return { piece: { kind: 'strong', children: splitInline(strong.inside) }, end: strong.end };
+  }
   const underline = paired(text, index, '__', true);
-  if (underline) return { piece: { kind: 'strong', text: underline.inside }, end: underline.end };
+  if (underline) {
+    return { piece: { kind: 'strong', children: splitInline(underline.inside) }, end: underline.end };
+  }
   const link = markdownLink(text, index);
-  if (link) return { piece: { kind: 'link', label: link.label, href: link.href }, end: link.end };
+  if (link) {
+    return {
+      piece: { kind: 'link', href: link.href, children: splitInline(link.label) },
+      end: link.end,
+    };
+  }
   const em = paired(text, index, '*', false);
-  if (em) return { piece: { kind: 'em', text: em.inside }, end: em.end };
+  if (em) return { piece: { kind: 'em', children: splitInline(em.inside) }, end: em.end };
   const emUnder = paired(text, index, '_', true);
-  if (emUnder) return { piece: { kind: 'em', text: emUnder.inside }, end: emUnder.end };
+  if (emUnder) return { piece: { kind: 'em', children: splitInline(emUnder.inside) }, end: emUnder.end };
   const cite = text.slice(index).match(/^\[[A-Za-z0-9_-]+\]/);
   if (cite) return { piece: { kind: 'cite', marker: cite[0] }, end: index + cite[0].length };
   return null;
