@@ -467,15 +467,23 @@ fn join_markdown_soft_wraps(text: &str) -> String {
     let mut out = String::new();
     for (index, line) in lines.iter().enumerate() {
         let line = line.trim_end_matches('\r');
-        if index > 0 {
-            let previous = lines[index - 1].trim_end_matches('\r');
-            if markdown_block_break(previous, line) {
+        let previous = index
+            .checked_sub(1)
+            .map(|prior| lines[prior].trim_end_matches('\r'));
+        let quote_continued =
+            previous.is_some_and(|prior| blockquote_continuation(prior.trim(), line.trim()));
+        if let Some(prior) = previous {
+            if markdown_block_break(prior, line) {
                 out.push('\n');
             } else if !out.ends_with([' ', '\t']) {
                 out.push(' ');
             }
         }
-        out.push_str(line);
+        if quote_continued {
+            out.push_str(blockquote_body(line));
+        } else {
+            out.push_str(line);
+        }
     }
     out
 }
@@ -485,10 +493,23 @@ fn markdown_block_break(previous: &str, next: &str) -> bool {
     if previous_text.is_empty() || next_text.is_empty() {
         return true;
     }
+    if blockquote_continuation(previous_text, next_text) {
+        return false;
+    }
     if markdown_block_line(next_text) {
         return true;
     }
     markdown_block_line(previous_text) && !list_continuation(previous, next)
+}
+fn blockquote_continuation(previous: &str, next: &str) -> bool {
+    previous.starts_with('>') && next.starts_with('>')
+}
+fn blockquote_body(line: &str) -> &str {
+    let mut rest = line.trim();
+    while let Some(after) = rest.strip_prefix('>') {
+        rest = after.trim_start();
+    }
+    rest
 }
 fn list_continuation(previous: &str, next: &str) -> bool {
     markdown_list_item(previous.trim_start())
@@ -614,12 +635,22 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
     if start == '[' {
         return !abbreviation_before(chars, index);
     }
+    while chars
+        .get(look)
+        .is_some_and(|ch| matches!(ch, '*' | '_' | '`'))
+    {
+        look += 1;
+    }
+    let Some(start) = chars.get(look).copied() else {
+        return true;
+    };
+    if start == '[' {
+        return !abbreviation_before(chars, index);
+    }
     sentence_start(start) && !abbreviation_before(chars, index)
 }
 fn sentence_start(ch: char) -> bool {
-    ch.is_ascii_alphanumeric()
-        || ('\u{3400}'..='\u{9fff}').contains(&ch)
-        || matches!(ch, '"' | '\'' | '“' | '‘' | '(')
+    ch.is_alphanumeric() || matches!(ch, '"' | '\'' | '“' | '‘' | '(' | '（')
 }
 /// A single letter, or one of these written abbreviations, is not a sentence end.
 const ABBREVIATIONS: &[&str] = &[

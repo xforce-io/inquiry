@@ -440,6 +440,24 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "Rust is fast.",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "First sentence. **Second sentence** [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "First sentence. école grew [1].",
+        "[1]",
+        "grew",
+        "First sentence. école grew.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "> A whole sentence\n> continued [1].",
+        "[1]",
+        "continued",
+        "A whole sentence continued.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
         "stores",
