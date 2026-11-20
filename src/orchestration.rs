@@ -79,7 +79,12 @@ fn policy(id: &str, ms: u64, calls: u64) -> RunBudgetPolicy {
         submission_reserve: 2,
         finalize_before_ms: match id {
             "article-initial-analysis" => article::discovery::INITIAL_ANALYSIS_FINALIZE_BEFORE_MS,
-            "article-analysis" | "article-draft" | "article-revise" | "article-semantic" => {
+            // Taskloop refuses every tool except artifact.write while
+            // remaining_ms <= finalize_before_ms. Revise still opens source
+            // pages for the whole 90s host window, so this entry does not
+            // close those reads until time is actually exhausted.
+            "article-revise" => article::revise::REVISE_ENTRY_FINALIZE_BEFORE_MS,
+            "article-analysis" | "article-draft" | "article-semantic" => {
                 article::revise::REVISE_FINALIZE_BEFORE_MS
             }
             _ => 2000,
@@ -226,6 +231,8 @@ fn semantic_pass_conditions() -> [(&'static str, &'static str, &'static str); 6]
 thread_local! {
     static REGISTERED_STAGES: std::cell::RefCell<Vec<(String, String, u64)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    static REGISTERED_BUDGETS: std::cell::RefCell<Vec<(String, RunBudgetPolicy)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     static SEMANTIC_RULES: std::cell::RefCell<Vec<Value>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
@@ -235,6 +242,23 @@ fn note_registered_stage(id: &str, instruction: &str, ms: u64) {
         slot.borrow_mut()
             .push((id.to_owned(), instruction.to_owned(), ms));
     });
+}
+#[cfg(test)]
+fn note_registered_budget(id: &str, policy: &RunBudgetPolicy) {
+    REGISTERED_BUDGETS.with(|slot| {
+        slot.borrow_mut().push((id.to_owned(), policy.clone()));
+    });
+}
+#[cfg(test)]
+pub(crate) fn registered_entry_budget(id: &str) -> RunBudgetPolicy {
+    REGISTERED_BUDGETS.with(|slot| {
+        slot.borrow()
+            .iter()
+            .rev()
+            .find(|(stage, _)| stage == id)
+            .map(|(_, policy)| policy.clone())
+            .unwrap_or_else(|| panic!("missing {id}"))
+    })
 }
 #[cfg(test)]
 fn note_semantic_rules(rules: &[Value]) {
@@ -452,12 +476,16 @@ pub fn registry(
             (true, "article-analysis") => 450000,
             _ => ms,
         };
+        let stage_policy = policy(id, ms, calls);
         #[cfg(test)]
-        note_registered_stage(id, &instruction, ms);
+        {
+            note_registered_stage(id, &instruction, ms);
+            note_registered_budget(&format!("{id}@1"), &stage_policy);
+        }
         r.register_entry(
             format!("{id}@1"),
             entry(executor, &instruction, input, &allowed, &outputs, skill),
-            policy(id, ms, calls),
+            stage_policy,
         )?;
         if matches!(id, "article-draft" | "article-revise") {
             let mut claim_instruction = instruction.clone();
@@ -473,7 +501,10 @@ pub fn registry(
             let mut claim_policy = policy(id, ms, calls);
             claim_policy.policy_id = format!("{id}-claim-v2");
             #[cfg(test)]
-            note_registered_stage(&format!("{id}@2"), &claim_instruction, ms);
+            {
+                note_registered_stage(&format!("{id}@2"), &claim_instruction, ms);
+                note_registered_budget(&format!("{id}@2"), &claim_policy);
+            }
             r.register_entry(format!("{id}@2"), claim_entry, claim_policy)?;
         }
     }
