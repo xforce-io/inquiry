@@ -164,7 +164,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
 /// Emphasis closers sitting immediately after that punctuation stay on the sentence. A sentence end in a link label ends the sentence after the whole link. Punctuation inside the URL does not.
-/// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
+/// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr., Eq., or Inc. stays in the sentence, even when a citation marker follows it.
 /// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence. A single letter after a word can end a sentence, as in "Plan A. Results improved." A. Smith stays one sentence. A hashtag without a space is not a heading, so a soft wrap keeps it in the sentence.
 /// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
 pub fn paragraph_states_marked_claims(
@@ -1088,8 +1088,8 @@ fn sentence_start(ch: char) -> bool {
 /// The last letter of an initialism such as `U.S.` starts a new sentence only when a clause
 /// already precedes it and the next word opens that sentence. `U.S. Government` stays together.
 const ABBREVIATIONS: &[&str] = &[
-    "capt", "col", "dr", "eq", "esq", "fig", "gen", "hon", "jr", "mr", "mrs", "ms", "no", "prof",
-    "rev", "sec", "sgt", "sr", "st", "vol",
+    "capt", "co", "col", "corp", "dr", "eq", "esq", "fig", "gen", "hon", "inc", "jr", "ltd", "mr",
+    "mrs", "ms", "no", "plc", "prof", "rev", "sec", "sgt", "sr", "st", "vol",
 ];
 const SENTENCE_OPENERS: &[&str] = &[
     "a",
