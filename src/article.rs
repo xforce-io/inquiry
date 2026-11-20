@@ -155,12 +155,14 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// The saved paragraph states each sentence that carries this marker.
 /// A short quote inside the paragraph is not enough when the sentence says something else.
 /// A marker after the sentence end belongs to that sentence when it stays in the same block. A marker after a blank line does not.
-/// List marks, links, emphasis, and table pipes are article syntax. A table row is compared through the cells that carry a marker.
+/// List marks, links, emphasis, and table pipes are article syntax. A citation marker inside a code span or a link URL is not a citation.
+/// An underscore inside a word is not emphasis. A table cell is compared alone only when its row belongs to a table that has a separator line.
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
 /// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
+/// The final period of an initialism such as U.S. ends the sentence when the next word is capitalized. U.S. policy stays one sentence.
 /// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
@@ -187,8 +189,7 @@ fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
                 .iter()
                 .any(|found| found == marker)
         })
-        .map(|sentence| strip_article_syntax(&sentence))
-        .filter(|claim| !claim.is_empty())
+        .filter(|sentence| !strip_article_syntax(sentence).trim().is_empty())
         .collect()
 }
 fn claim_equals_source(article: &str, marker: &str, source: &str) -> bool {
@@ -202,6 +203,9 @@ fn claim_equals_source(article: &str, marker: &str, source: &str) -> bool {
         article = normalize_claim(&next);
     }
     article = normalize_claim(&strip_trailing_markers_not_in_source(&article, &source));
+    // Drop article syntax only after citation markers are removed, so a `[n]`
+    // inside a code span stays literal text instead of becoming another citation.
+    article = normalize_claim(&strip_article_syntax(&article));
     article == source
 }
 fn count_marker(text: &str, marker: &str) -> usize {
@@ -258,28 +262,68 @@ fn peel_leading_markers(sentence: &str) -> (String, String) {
     (leading, rest)
 }
 fn citation_markers(text: &str) -> Vec<String> {
-    let mut markers = Vec::new();
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'['
-            && let Some(relative) = text[index + 1..].find(']')
-        {
-            let inside = &text[index + 1..index + 1 + relative];
-            if !inside.is_empty() && inside.bytes().all(|byte| byte.is_ascii_digit()) {
-                let end = index + 1 + relative + 1;
-                markers.push(text[index..end].to_owned());
-                index = end;
-                continue;
-            }
-        }
-        index += text[index..]
-            .chars()
-            .next()
-            .map(char::len_utf8)
-            .unwrap_or(1);
+    citation_marker_ranges(text)
+        .into_iter()
+        .map(|(start, end)| text[start..end].to_owned())
+        .collect()
+}
+/// Byte ranges of `[digits]` citations. A marker inside a code span, or inside a Markdown link URL, is not a citation.
+fn citation_marker_ranges(text: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut char_to_byte = Vec::with_capacity(chars.len() + 1);
+    let mut byte = 0;
+    for ch in &chars {
+        char_to_byte.push(byte);
+        byte += ch.len_utf8();
     }
-    markers
+    char_to_byte.push(byte);
+    let mut ranges = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index) {
+            index = end + 1;
+            continue;
+        }
+        if let Some(link_end) = markdown_link_end(&chars, index) {
+            let label_close = chars[index + 1..=link_end]
+                .iter()
+                .position(|ch| *ch == ']')
+                .map(|offset| index + 1 + offset);
+            if let Some(label_close) = label_close {
+                let label: String = chars[index + 1..label_close].iter().collect();
+                let label_byte = char_to_byte[index + 1];
+                for (start, end) in citation_marker_ranges(&label) {
+                    ranges.push((label_byte + start, label_byte + end));
+                }
+            }
+            index = link_end + 1;
+            continue;
+        }
+        if let Some(end) = digit_marker_end(&chars, index) {
+            ranges.push((char_to_byte[index], char_to_byte[end + 1]));
+            index = end + 1;
+            continue;
+        }
+        index += 1;
+    }
+    ranges
+}
+fn digit_marker_end(chars: &[char], index: usize) -> Option<usize> {
+    if chars.get(index) != Some(&'[') {
+        return None;
+    }
+    let mut cursor = index + 1;
+    if !chars.get(cursor).is_some_and(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    while chars.get(cursor).is_some_and(|ch| ch.is_ascii_digit()) {
+        cursor += 1;
+    }
+    if chars.get(cursor) == Some(&']') {
+        Some(cursor)
+    } else {
+        None
+    }
 }
 fn strip_article_syntax(sentence: &str) -> String {
     let plain = strip_code_spans(&strip_emphasis_markers(&strip_markdown_links(sentence)));
@@ -332,30 +376,10 @@ fn heading_body(text: &str) -> Option<&str> {
     }
 }
 fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
-    let bytes = text.as_bytes();
-    let mut index = 0;
-    let mut found = None;
-    while index < bytes.len() {
-        if bytes[index] == b'['
-            && let Some(relative) = text[index + 1..].find(']')
-        {
-            let inside = &text[index + 1..index + 1 + relative];
-            if !inside.is_empty() && inside.bytes().all(|byte| byte.is_ascii_digit()) {
-                let end = index + 1 + relative + 1;
-                if text[index..end] == *marker {
-                    found = Some((index, end));
-                }
-                index = end;
-                continue;
-            }
-        }
-        index += text[index..]
-            .chars()
-            .next()
-            .map(char::len_utf8)
-            .unwrap_or(1);
-    }
-    let (mut start, mut end) = found?;
+    let (mut start, mut end) = citation_marker_ranges(text)
+        .into_iter()
+        .rev()
+        .find(|(start, end)| &text[*start..*end] == marker)?;
     let before_space = start > 0 && text.as_bytes()[start - 1].is_ascii_whitespace();
     let after = text[end..].trim_start();
     if before_space && (after.is_empty() || after.starts_with(['.', '。', '！', '？', '!', '?']))
@@ -402,12 +426,12 @@ fn strip_trailing_markers_not_in_source(article: &str, source: &str) -> String {
     text
 }
 fn strip_emphasis_markers(text: &str) -> String {
-    let text = strip_paired(text, "**");
-    let text = strip_paired(&text, "__");
-    let text = strip_paired(&text, "*");
-    strip_paired(&text, "_")
+    let text = strip_paired(text, "**", false);
+    let text = strip_paired(&text, "__", true);
+    let text = strip_paired(&text, "*", false);
+    strip_paired(&text, "_", true)
 }
-fn strip_paired(text: &str, marker: &str) -> String {
+fn strip_paired(text: &str, marker: &str, reject_intra_word: bool) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find(marker) {
@@ -415,7 +439,17 @@ fn strip_paired(text: &str, marker: &str) -> String {
         let opener = !after.starts_with(char::is_whitespace) && !after.is_empty();
         if opener && let Some(end) = after.find(marker) {
             let inside = &after[..end];
-            if !inside.is_empty()
+            let followed_by_word = after[end + marker.len()..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_alphanumeric());
+            let preceded_by_word = rest[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch.is_alphanumeric());
+            let intra_word = reject_intra_word && (preceded_by_word || followed_by_word);
+            if !intra_word
+                && !inside.is_empty()
                 && !inside.ends_with(char::is_whitespace)
                 && !inside.contains('\n')
             {
@@ -573,13 +607,70 @@ struct SplitSentence {
     /// A newline, including a blank line, separates this sentence from the previous one.
     new_block: bool,
 }
-/// A line with two or more pipes keeps only cells that carry a citation marker.
+/// A Markdown table keeps only cells that carry a citation marker.
 /// Those cells are separate blocks, so an unmarked cell is not part of the claim.
+/// A line of prose that merely contains pipes is not a table unless that block has a separator row.
 fn isolate_marked_table_cells(text: &str) -> String {
-    text.split('\n')
-        .map(marked_table_line)
+    let lines: Vec<&str> = text.split('\n').collect();
+    let in_table = table_line_mask(&lines);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if in_table[index] {
+                marked_table_line(line)
+            } else {
+                line.trim_end_matches('\r').to_owned()
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
+}
+fn table_line_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        if !table_row_line(lines[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < lines.len() && table_row_line(lines[index]) {
+            index += 1;
+        }
+        if (start..index).any(|cursor| table_separator_line(lines[cursor])) {
+            for item in &mut mask[start..index] {
+                *item = true;
+            }
+        }
+    }
+    mask
+}
+fn table_row_line(line: &str) -> bool {
+    table_separator_line(line) || line.trim().trim_end_matches('\r').matches('|').count() >= 2
+}
+fn table_separator_line(line: &str) -> bool {
+    let trimmed = line.trim().trim_end_matches('\r');
+    if !trimmed.contains('|') {
+        return false;
+    }
+    let cells = table_cells(trimmed);
+    !cells.is_empty() && cells.iter().all(|cell| separator_cell(cell))
+}
+fn separator_cell(cell: &str) -> bool {
+    let mut chars = cell.trim().chars().peekable();
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+    let mut dashes = 0;
+    while chars.peek() == Some(&'-') {
+        chars.next();
+        dashes += 1;
+    }
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+    dashes >= 3 && chars.next().is_none()
 }
 fn marked_table_line(line: &str) -> String {
     let line = line.trim_end_matches('\r');
@@ -793,6 +884,7 @@ fn sentence_start(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '"' | '\'' | '“' | '‘' | '(' | '（')
 }
 /// A single letter, or one of these written abbreviations, is not a sentence end.
+/// The last letter of an initialism such as `U.S.` is a sentence end when a capitalized word follows.
 const ABBREVIATIONS: &[&str] = &[
     "capt", "col", "dr", "eq", "esq", "fig", "gen", "hon", "jr", "mr", "mrs", "ms", "no", "prof",
     "rev", "sec", "sgt", "sr", "st", "vol",
@@ -804,9 +896,29 @@ fn abbreviation_before(chars: &[char], period: usize) -> bool {
     }
     let word: String = chars[start..period].iter().collect();
     if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
+        let initialism_end = start > 0 && chars[start - 1] == '.';
+        if initialism_end && next_sentence_is_ascii_uppercase(chars, period) {
+            return false;
+        }
         return true;
     }
     ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
+}
+fn next_sentence_is_ascii_uppercase(chars: &[char], period: usize) -> bool {
+    let mut look = period + 1;
+    while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
+        look += 1;
+    }
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    while chars
+        .get(look)
+        .is_some_and(|ch| matches!(ch, '*' | '_' | '`' | '"' | '\'' | '“' | '‘' | '(' | '（'))
+    {
+        look += 1;
+    }
+    chars.get(look).is_some_and(|ch| ch.is_ascii_uppercase())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

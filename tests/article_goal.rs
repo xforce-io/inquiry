@@ -286,7 +286,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "Dr. Smith found it.",
     ));
     assert!(article::paragraph_states_marked_claims(
-        "| The system stores events. [1] |",
+        "| --- |\n| The system stores events. [1] |",
         "[1]",
         "stores",
         "The system stores events.",
@@ -488,13 +488,13 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "See docs now.",
     ));
     assert!(!article::paragraph_states_marked_claims(
-        "| Unsupported prefix \\| Exact tail [1]. |",
+        "| 项 | 主张 |\n| --- | --- |\n| 前缀 | Unsupported prefix \\| Exact tail [1]. |",
         "[1]",
         "Exact",
         "Exact tail.",
     ));
     assert!(article::paragraph_states_marked_claims(
-        "| Unsupported prefix \\| Exact tail [1]. |",
+        "| 项 | 主张 |\n| --- | --- |\n| 前缀 | Unsupported prefix \\| Exact tail [1]. |",
         "[1]",
         "Exact",
         "Unsupported prefix | Exact tail.",
@@ -512,7 +512,79 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "The result is 2 * 3.",
     ));
     assert!(article::paragraph_states_marked_claims(
-        "| 存储 | The system stores events. [1] |",
+        "Use `items[1]` in the query. Exact source sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact source sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Use `items[1]` in the query [1].",
+        "[1]",
+        "query",
+        "Use items in the query.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use `items[1]` in the query [1].",
+        "[1]",
+        "items",
+        "Use items[1] in the query.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "See [section](https://example.test/[1]) for details. Exact source sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact source sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The field is foo_bar_baz [1].",
+        "[1]",
+        "field",
+        "The field is foobarbaz.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The field is foo_bar_baz [1].",
+        "[1]",
+        "field",
+        "The field is foo_bar_baz.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Unsupported prefix | middle | Exact tail [1].",
+        "[1]",
+        "Exact",
+        "Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Unsupported prefix | middle | Exact tail [1].",
+        "[1]",
+        "Exact",
+        "Unsupported prefix | middle | Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Sales rose [1].",
+        "[1]",
+        "Sales",
+        "We operate in the U.S. Sales rose.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "A. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| 存储 | 其它 |\n| --- | --- |\n| The system stores events. [1] | 未引用 |",
         "[1]",
         "stores",
         "The system stores events.",
