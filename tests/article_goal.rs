@@ -192,6 +192,39 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "showed X",
         "Prior work [12] showed X.",
     ));
+    report.conclusion =
+        "A saved official\nstatement with a real mechanism and limitation [1].".into();
+    assert!(article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+    assert!(article::paragraph_states_marked_claims(
+        &format!("- {stated}\n  [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{stated} [1]."),
+        "[1]",
+        "real mechanism",
+        "A saved official\nstatement with a real mechanism and limitation.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "A saved official\n\nstatement [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("## Mechanism\n{stated} [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());

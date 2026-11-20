@@ -156,6 +156,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A short quote inside the paragraph is not enough when the sentence says something else.
 /// A marker after the sentence end belongs to that sentence. List marks, links, and emphasis are article syntax.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
+/// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -330,7 +331,60 @@ fn strip_list_prefix(text: &str) -> String {
     }
     text.to_owned()
 }
+fn join_markdown_soft_wraps(text: &str) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        let line = line.trim_end_matches('\r');
+        if index > 0 {
+            let previous = lines[index - 1].trim_end_matches('\r');
+            if markdown_block_break(previous, line) {
+                out.push('\n');
+            } else if !out.ends_with([' ', '\t']) {
+                out.push(' ');
+            }
+        }
+        out.push_str(line);
+    }
+    out
+}
+fn markdown_block_break(previous: &str, next: &str) -> bool {
+    let previous_text = previous.trim();
+    let next_text = next.trim();
+    if previous_text.is_empty() || next_text.is_empty() {
+        return true;
+    }
+    if markdown_block_line(next_text) {
+        return true;
+    }
+    markdown_block_line(previous_text) && !list_continuation(previous, next)
+}
+fn list_continuation(previous: &str, next: &str) -> bool {
+    markdown_list_item(previous.trim_start())
+        && (next.starts_with("  ") || next.starts_with('\t'))
+        && !markdown_block_line(next.trim_start())
+}
+fn markdown_block_line(trimmed: &str) -> bool {
+    trimmed.starts_with('#')
+        || trimmed.starts_with('>')
+        || trimmed.starts_with("```")
+        || markdown_list_item(trimmed)
+}
+fn markdown_list_item(trimmed: &str) -> bool {
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || ordered_list_item(trimmed)
+}
+fn ordered_list_item(trimmed: &str) -> bool {
+    let digits = trimmed
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    digits > 0 && trimmed[digits..].starts_with(". ")
+}
 fn split_sentences(text: &str) -> Vec<String> {
+    let text = join_markdown_soft_wraps(text);
     let chars: Vec<char> = text.chars().collect();
     let mut sentences = Vec::new();
     let mut current = String::new();

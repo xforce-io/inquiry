@@ -179,6 +179,9 @@ pub(crate) fn opened_comparison_clause(id: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+fn marked_sentence_clause() -> &'static str {
+    " A sentence carrying a numeric citation marker must equal one whole sentence of that citation's saved paragraph after the marker and article syntax are removed. Copy that sentence; do not paraphrase it. Unmarked synthesis may stand beside it."
+}
 fn semantic_pass_conditions() -> [(&'static str, &'static str, &'static str); 6] {
     [
         (
@@ -434,6 +437,9 @@ pub fn registry(
                 article::revise::SYNTHESIS_SOURCE_READS,
                 article::revise::SYNTHESIS_SUBMIT
             ));
+        }
+        if matches!(id, "article-draft" | "article-revise") {
+            instruction.push_str(marked_sentence_clause());
         }
         if let Some(clause) = opened_comparison_clause(id) {
             instruction.push_str(clause);
@@ -774,6 +780,13 @@ mod tests {
         let (revise, revise_ms) = registered("article-revise");
         assert!(draft.contains(writing));
         assert!(revise.contains(writing));
+        assert!(draft.contains(marked_sentence_clause()));
+        assert!(revise.contains(marked_sentence_clause()));
+        assert!(
+            !registered("article-analysis")
+                .0
+                .contains(marked_sentence_clause())
+        );
         assert!(writing.contains("set answer_status=answered"));
         assert!(writing.contains("into limitations"));
         assert!(writing.contains("Do not invent those facts."));
