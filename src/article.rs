@@ -1086,12 +1086,15 @@ fn sentence_start(ch: char) -> bool {
 }
 /// A single letter, or one of these written abbreviations, is not a sentence end
 /// unless the next word opens a sentence, as in `Acme Inc. Revenue rose.`
+/// A company suffix also ends the sentence when a capitalized clause follows, as in `Acme Inc. Customers responded.`
 /// The last letter of an initialism such as `U.S.` starts a new sentence only when a clause
 /// already precedes it and the next word opens that sentence. `U.S. Government` stays together.
+/// `We operate in the U.S. Customers adopted it.` splits.
 const ABBREVIATIONS: &[&str] = &[
     "capt", "co", "col", "corp", "dr", "eq", "esq", "fig", "gen", "hon", "inc", "jr", "ltd", "mr",
     "mrs", "ms", "no", "plc", "prof", "rev", "sec", "sgt", "sr", "st", "vol",
 ];
+const COMPANY_SUFFIXES: &[&str] = &["co", "corp", "inc", "ltd", "plc"];
 const SENTENCE_OPENERS: &[&str] = &[
     "a",
     "an",
@@ -1152,8 +1155,14 @@ fn abbreviation_before(chars: &[char], period: usize) -> bool {
     if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
         return !letter_ends_sentence(chars, period, start);
     }
-    ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
-        && !sentence_opens_after(chars, period)
+    let lower = word.to_ascii_lowercase();
+    if !ABBREVIATIONS.contains(&lower.as_str()) {
+        return false;
+    }
+    if COMPANY_SUFFIXES.contains(&lower.as_str()) {
+        return !company_suffix_ends_sentence(chars, period);
+    }
+    true
 }
 fn letter_ends_sentence(chars: &[char], period: usize, letter: usize) -> bool {
     let initialism_end = letter > 0 && chars[letter - 1] == '.';
@@ -1164,7 +1173,34 @@ fn letter_ends_sentence(chars: &[char], period: usize, letter: usize) -> bool {
     multi_letter_word_before(chars, letter) && sentence_opens_after(chars, period)
 }
 fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) -> bool {
-    clause_before_initialism(chars, letter) && sentence_opens_after(chars, period)
+    clause_before_initialism(chars, letter) && initialism_clause_opens(chars, period)
+}
+fn company_suffix_ends_sentence(chars: &[char], period: usize) -> bool {
+    sentence_opens_after(chars, period) || capitalized_finite_clause(chars, period)
+}
+/// `U.S. Government` stays one name. Another capitalized word plus a finite verb starts a sentence.
+fn initialism_clause_opens(chars: &[char], period: usize) -> bool {
+    if sentence_opens_after(chars, period) {
+        return true;
+    }
+    let Some((next, _)) = words_after_period(chars, period) else {
+        return false;
+    };
+    if next.eq_ignore_ascii_case("government") {
+        return false;
+    }
+    capitalized_finite_clause(chars, period)
+}
+fn capitalized_finite_clause(chars: &[char], period: usize) -> bool {
+    let Some((next, after)) = words_after_period(chars, period) else {
+        return false;
+    };
+    let Some(first) = next.chars().next() else {
+        return false;
+    };
+    first.is_ascii_uppercase()
+        && next.chars().count() > 1
+        && after.is_some_and(|word| finite_verb(&word))
 }
 fn sentence_opens_after(chars: &[char], period: usize) -> bool {
     let Some((next, after)) = words_after_period(chars, period) else {
