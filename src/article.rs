@@ -159,7 +159,8 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
-/// A period ends an English sentence before a citation marker, or when the next sentence starts and the word before the period has at least four letters and a lowercase letter.
+/// A period ends an English sentence before a citation marker, at the end of the text, or when the next sentence starts.
+/// A single letter, or a two-to-four-letter title-case token such as Dr. or Eq., is an abbreviation and stays in the sentence.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -548,20 +549,26 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
     if start == '[' {
         return true;
     }
-    sentence_start(start) && ordinary_word_before(chars, index)
+    sentence_start(start) && !abbreviation_before(chars, index)
 }
 fn sentence_start(ch: char) -> bool {
     ch.is_uppercase()
         || ('\u{3400}'..='\u{9fff}').contains(&ch)
         || matches!(ch, '"' | '\'' | '“' | '‘' | '(')
 }
-fn ordinary_word_before(chars: &[char], period: usize) -> bool {
+/// A single letter, or a short title-case token, is an abbreviation rather than a sentence end.
+fn abbreviation_before(chars: &[char], period: usize) -> bool {
     let mut start = period;
     while start > 0 && chars[start - 1].is_ascii_alphanumeric() {
         start -= 1;
     }
-    let word: String = chars[start..period].iter().collect();
-    word.chars().count() >= 4 && word.chars().any(|ch| ch.is_ascii_lowercase())
+    let word = &chars[start..period];
+    if word.len() == 1 && word[0].is_ascii_alphabetic() {
+        return true;
+    }
+    (2..=4).contains(&word.len())
+        && word[0].is_ascii_uppercase()
+        && word[1..].iter().all(|ch| ch.is_ascii_lowercase())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

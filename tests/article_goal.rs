@@ -333,6 +333,24 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "true",
         "This is true. Next sentence.",
     ));
+    for paragraph in [
+        "Released in 2024. It works.",
+        "This uses an API. It works.",
+        "This is v2. It works.",
+        "Pick it up. It works.",
+        "This is normal. It works.",
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims("It works [1].", "[1]", "works", paragraph),
+            "{paragraph}"
+        );
+    }
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
     assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
