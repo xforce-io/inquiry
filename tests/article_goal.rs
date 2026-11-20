@@ -279,6 +279,18 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "found",
         "Dr. Smith found it.",
     ));
+    assert!(article::paragraph_states_marked_claims(
+        "| The system stores events. [1] |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The system [1] stores events.",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());

@@ -154,7 +154,8 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 }
 /// The saved paragraph states each sentence that carries this marker.
 /// A short quote inside the paragraph is not enough when the sentence says something else.
-/// A marker after the sentence end belongs to that sentence. List marks, links, and emphasis are article syntax.
+/// A marker after the sentence end belongs to that sentence. List marks, links, emphasis, and table pipes are article syntax.
+/// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 pub fn paragraph_states_marked_claims(
@@ -182,7 +183,7 @@ fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
                 .iter()
                 .any(|found| found == marker)
         })
-        .map(|sentence| normalize_claim(&claim_text(&sentence)))
+        .map(|sentence| normalize_claim(&claim_text(&sentence, marker)))
         .filter(|claim| !claim.is_empty())
         .collect()
 }
@@ -255,10 +256,32 @@ fn citation_markers(text: &str) -> Vec<String> {
     }
     markers
 }
-fn claim_text(sentence: &str) -> String {
-    let stated = strip_trailing_report_markers(sentence);
+fn claim_text(sentence: &str, marker: &str) -> String {
+    let without_pipes = sentence.replace('|', "");
+    let without_marker = remove_marker_token(&without_pipes, marker);
+    let stated = strip_trailing_report_markers(&without_marker);
     let plain = strip_emphasis_markers(&strip_markdown_links(&stated)).replace('`', "");
     strip_list_prefix(plain.trim())
+}
+fn remove_marker_token(text: &str, marker: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(index) = rest.find(marker) {
+        let after = index + marker.len();
+        let inside_longer_marker = rest[after..]
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_ascii_digit());
+        if inside_longer_marker {
+            out.push_str(&rest[..=index]);
+            rest = &rest[index + 1..];
+            continue;
+        }
+        out.push_str(&rest[..index]);
+        rest = &rest[after..];
+    }
+    out.push_str(rest);
+    out
 }
 fn strip_emphasis_markers(text: &str) -> String {
     let text = text.replace("**", "").replace("__", "");
