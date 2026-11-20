@@ -154,6 +154,30 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         &quote,
         paragraph,
     ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph} [1]"),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("- {stated} [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "A saved [official statement](https://example.com/official) with a real mechanism and limitation [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Treatment X is effective [1].",
+        "[1]",
+        "Treatment X",
+        "The study did not conclude that Treatment X is effective.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());

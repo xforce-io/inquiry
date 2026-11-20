@@ -154,8 +154,8 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 }
 /// The saved paragraph states each sentence that carries this marker.
 /// A short quote inside the paragraph is not enough when the sentence says something else.
-/// Citation markers and Markdown emphasis are article syntax, not part of the stated sentence.
-/// A paraphrase the paragraph does not contain still fails.
+/// A marker after the sentence end belongs to that sentence. List marks, links, and emphasis are article syntax.
+/// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -166,10 +166,15 @@ pub fn paragraph_states_marked_claims(
         return false;
     }
     let claims = marked_claims(conclusion, marker);
-    !claims.is_empty() && claims.iter().all(|claim| paragraph.contains(claim))
+    !claims.is_empty()
+        && claims.iter().all(|claim| {
+            split_sentences(paragraph)
+                .iter()
+                .any(|sentence| normalize_claim(sentence) == *claim)
+        })
 }
 fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
-    split_sentences(conclusion)
+    sentences_with_trailing_markers(conclusion)
         .into_iter()
         .filter(|sentence| {
             citation_markers(sentence)
@@ -179,6 +184,51 @@ fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
         .map(|sentence| normalize_claim(&claim_text(&sentence)))
         .filter(|claim| !claim.is_empty())
         .collect()
+}
+fn sentences_with_trailing_markers(text: &str) -> Vec<String> {
+    let mut prepared: Vec<String> = Vec::new();
+    for sentence in split_sentences(text) {
+        let (leading, rest) = peel_leading_markers(&sentence);
+        if !leading.is_empty()
+            && let Some(previous) = prepared.last_mut()
+        {
+            previous.push(' ');
+            previous.push_str(&leading);
+        }
+        if !rest.is_empty() {
+            if leading.is_empty() || prepared.is_empty() {
+                prepared.push(if leading.is_empty() {
+                    sentence
+                } else {
+                    format!("{leading} {rest}")
+                });
+            } else {
+                prepared.push(rest);
+            }
+        } else if prepared.is_empty() && !leading.is_empty() {
+            prepared.push(leading);
+        }
+    }
+    prepared
+}
+fn peel_leading_markers(sentence: &str) -> (String, String) {
+    let mut rest = sentence.trim().to_owned();
+    let mut leading = String::new();
+    loop {
+        let markers = citation_markers(&rest);
+        let Some(first) = markers.first() else {
+            break;
+        };
+        if !rest.starts_with(first) {
+            break;
+        }
+        if !leading.is_empty() {
+            leading.push(' ');
+        }
+        leading.push_str(first);
+        rest = rest[first.len()..].trim_start().to_owned();
+    }
+    (leading, rest)
 }
 fn citation_markers(text: &str) -> Vec<String> {
     let mut markers = Vec::new();
@@ -218,7 +268,53 @@ fn claim_text(sentence: &str) -> String {
         rest = &rest[start + marker.len()..];
     }
     kept.push_str(rest);
-    kept.replace("**", "").replace("__", "").replace('`', "")
+    let plain = strip_markdown_links(&kept)
+        .replace("**", "")
+        .replace("__", "")
+        .replace('`', "");
+    strip_list_prefix(plain.trim())
+}
+fn strip_markdown_links(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('[') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        if let Some(label_end) = after.find(']') {
+            let label = &after[..label_end];
+            let tail = &after[label_end + 1..];
+            if !label.is_empty()
+                && !label.bytes().all(|byte| byte.is_ascii_digit())
+                && let Some(url_end) = tail.strip_prefix('(').and_then(|url| url.find(')'))
+            {
+                out.push_str(label);
+                rest = &tail[1 + url_end + 1..];
+                continue;
+            }
+        }
+        out.push('[');
+        rest = &rest[start + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+fn strip_list_prefix(text: &str) -> String {
+    if let Some(rest) = text
+        .strip_prefix("- ")
+        .or_else(|| text.strip_prefix("* "))
+        .or_else(|| text.strip_prefix("+ "))
+    {
+        return rest.trim().to_owned();
+    }
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index > 0 && text[index..].starts_with(". ") {
+        return text[index + 2..].trim().to_owned();
+    }
+    text.to_owned()
 }
 fn split_sentences(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
