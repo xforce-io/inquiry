@@ -586,7 +586,7 @@ pub fn registry(
         .collect::<Vec<_>>();
     let mut plan_checks_v2 = plan_checks.clone();
     plan_checks_v2.insert(
-        "integrity".into(),
+        "integrity",
         json!({"phase":"goal_final","checker_ref":"article-integrity@2","targets":["article","analysis","plan","corpus1","corpus2"]}),
     );
     let goal = json!({"kind":"goal","pointer":"/goal"});

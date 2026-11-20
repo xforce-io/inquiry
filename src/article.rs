@@ -159,8 +159,9 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
-/// A period ends an English sentence before a citation marker, at the end of the text, or when the next sentence starts.
-/// A single letter, or a two-to-four-letter title-case token such as Dr. or Eq., is an abbreviation and stays in the sentence.
+/// A period ends an English sentence before a citation marker, at the end of the text, or when the next sentence starts, including a sentence that starts with a digit.
+/// A single letter or a listed abbreviation such as Dr., Eq., or Prof. stays in the sentence. Ordinary words such as May or Rust do not.
+/// A heading mark or blockquote mark before the sentence is article syntax.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -283,7 +284,25 @@ fn citation_markers(text: &str) -> Vec<String> {
 fn strip_article_syntax(sentence: &str) -> String {
     let without_pipes = sentence.replace('|', "");
     let plain = strip_emphasis_markers(&strip_markdown_links(&without_pipes)).replace('`', "");
-    strip_list_prefix(plain.trim())
+    strip_block_prefix(plain.trim())
+}
+fn strip_block_prefix(text: &str) -> String {
+    let mut rest = text.trim().to_owned();
+    loop {
+        let trimmed = rest.trim();
+        if let Some(after) = trimmed.strip_prefix('>') {
+            rest = after.trim_start().to_owned();
+        } else if trimmed.starts_with('#') {
+            rest = trimmed.trim_start_matches('#').trim_start().to_owned();
+        } else {
+            let listed = strip_list_prefix(trimmed);
+            if listed.trim() == trimmed {
+                break;
+            }
+            rest = listed;
+        }
+    }
+    rest
 }
 fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
     let bytes = text.as_bytes();
@@ -552,23 +571,26 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
     sentence_start(start) && !abbreviation_before(chars, index)
 }
 fn sentence_start(ch: char) -> bool {
-    ch.is_uppercase()
+    ch.is_ascii_digit()
+        || ch.is_uppercase()
         || ('\u{3400}'..='\u{9fff}').contains(&ch)
         || matches!(ch, '"' | '\'' | '“' | '‘' | '(')
 }
-/// A single letter, or a short title-case token, is an abbreviation rather than a sentence end.
+/// A single letter, or one of these written abbreviations, is not a sentence end.
+const ABBREVIATIONS: &[&str] = &[
+    "capt", "col", "dr", "eq", "esq", "fig", "gen", "hon", "jr", "mr", "mrs", "ms", "no", "prof",
+    "rev", "sec", "sgt", "sr", "st", "vol",
+];
 fn abbreviation_before(chars: &[char], period: usize) -> bool {
     let mut start = period;
     while start > 0 && chars[start - 1].is_ascii_alphanumeric() {
         start -= 1;
     }
-    let word = &chars[start..period];
-    if word.len() == 1 && word[0].is_ascii_alphabetic() {
+    let word: String = chars[start..period].iter().collect();
+    if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
         return true;
     }
-    (2..=4).contains(&word.len())
-        && word[0].is_ascii_uppercase()
-        && word[1..].iter().all(|ch| ch.is_ascii_lowercase())
+    ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

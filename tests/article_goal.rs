@@ -131,7 +131,7 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
     let stated = "A saved official statement with a real mechanism and limitation";
     for conclusion in [
         format!("{stated} [1][2]."),
-        format!("A saved **official statement** with a real mechanism and limitation [1]."),
+        "A saved **official statement** with a real mechanism and limitation [1].".to_string(),
     ] {
         assert!(
             article::paragraph_states_marked_claims(&conclusion, "[1]", &quote, paragraph),
@@ -350,6 +350,40 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "[1]",
         "found",
         "Dr. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Prof. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "2024 was stronger [1].",
+        "[1]",
+        "stronger",
+        "Revenue grew. 2024 was stronger.",
+    ));
+    for paragraph in [
+        "The launch was in May. Sales rose.",
+        "The launch used Rust. Sales rose.",
+        "The buyer was Acme. Sales rose.",
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims("Sales rose [1].", "[1]", "Sales", paragraph),
+            "{paragraph}"
+        );
+    }
+    assert!(article::paragraph_states_marked_claims(
+        "## The system stores events [1].",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "> The system stores events [1].",
+        "[1]",
+        "stores",
+        "The system stores events.",
     ));
     assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
