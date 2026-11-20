@@ -482,6 +482,36 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "Run cmd now.",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "See [docs](https://example.com/query?x=1) now [1].",
+        "[1]",
+        "docs",
+        "See docs now.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "| Unsupported prefix \\| Exact tail [1]. |",
+        "[1]",
+        "Exact",
+        "Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| Unsupported prefix \\| Exact tail [1]. |",
+        "[1]",
+        "Exact",
+        "Unsupported prefix | Exact tail.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The result is 2 * 3 [1].",
+        "[1]",
+        "result",
+        "The result is 2 3.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is 2 * 3 [1].",
+        "[1]",
+        "result",
+        "The result is 2 * 3.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
         "stores",

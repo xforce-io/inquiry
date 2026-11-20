@@ -402,22 +402,33 @@ fn strip_trailing_markers_not_in_source(article: &str, source: &str) -> String {
     text
 }
 fn strip_emphasis_markers(text: &str) -> String {
-    let text = text.replace("**", "").replace("__", "");
-    let chars: Vec<char> = text.chars().collect();
+    let text = strip_paired(text, "**");
+    let text = strip_paired(&text, "__");
+    let text = strip_paired(&text, "*");
+    strip_paired(&text, "_")
+}
+fn strip_paired(text: &str, marker: &str) -> String {
     let mut out = String::new();
-    for (index, ch) in chars.iter().enumerate() {
-        if matches!(ch, '*' | '_') {
-            let prev_word = index > 0 && chars[index - 1].is_alphanumeric();
-            let next_word = chars
-                .get(index + 1)
-                .is_some_and(|next| next.is_alphanumeric());
-            if prev_word && next_word {
-                out.push(*ch);
+    let mut rest = text;
+    while let Some(start) = rest.find(marker) {
+        let after = &rest[start + marker.len()..];
+        let opener = !after.starts_with(char::is_whitespace) && !after.is_empty();
+        if opener && let Some(end) = after.find(marker) {
+            let inside = &after[..end];
+            if !inside.is_empty()
+                && !inside.ends_with(char::is_whitespace)
+                && !inside.contains('\n')
+            {
+                out.push_str(&rest[..start]);
+                out.push_str(inside);
+                rest = &after[end + marker.len()..];
+                continue;
             }
-            continue;
         }
-        out.push(*ch);
+        out.push_str(&rest[..start + marker.len()]);
+        rest = after;
     }
+    out.push_str(rest);
     out
 }
 fn strip_markdown_links(text: &str) -> String {
@@ -576,17 +587,51 @@ fn marked_table_line(line: &str) -> String {
     if trimmed.matches('|').count() < 2 {
         return line.to_owned();
     }
-    let marked: Vec<&str> = trimmed
-        .trim_matches('|')
-        .split('|')
-        .map(str::trim)
-        .filter(|cell| !cell.is_empty() && !citation_markers(cell).is_empty())
+    let marked: Vec<String> = table_cells(trimmed)
+        .into_iter()
+        .filter(|cell| !citation_markers(cell).is_empty())
         .collect();
     if marked.is_empty() {
         line.to_owned()
     } else {
         format!("\n\n{}\n\n", marked.join("\n\n"))
     }
+}
+fn table_cells(line: &str) -> Vec<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut cells = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '\\' && chars.get(index + 1) == Some(&'|') {
+            current.push('|');
+            index += 2;
+            continue;
+        }
+        if let Some(end) = code_span_end(&chars, index) {
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            continue;
+        }
+        if chars[index] == '|' {
+            let cell = current.trim().to_owned();
+            if !cell.is_empty() {
+                cells.push(cell);
+            }
+            current.clear();
+            index += 1;
+            continue;
+        }
+        current.push(chars[index]);
+        index += 1;
+    }
+    let cell = current.trim().to_owned();
+    if !cell.is_empty() {
+        cells.push(cell);
+    }
+    cells
 }
 /// A blank line starts a new block. A citation marker there is not part of the previous sentence.
 fn split_sentences(text: &str) -> Vec<SplitSentence> {
@@ -597,6 +642,14 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
     let mut new_block = false;
     let mut index = 0;
     while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index).or_else(|| markdown_link_end(&chars, index))
+        {
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            continue;
+        }
         let ch = chars[index];
         current.push(ch);
         let newline = ch == '\n';
@@ -633,6 +686,67 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
         });
     }
     sentences
+}
+fn code_span_end(chars: &[char], start: usize) -> Option<usize> {
+    if chars.get(start) != Some(&'`') {
+        return None;
+    }
+    let mut marks = 0;
+    while chars.get(start + marks) == Some(&'`') {
+        marks += 1;
+    }
+    let mut index = start + marks;
+    while index < chars.len() {
+        if chars[index] == '`' {
+            let mut close = 0;
+            while chars.get(index + close) == Some(&'`') {
+                close += 1;
+            }
+            if close >= marks {
+                return Some(index + marks - 1);
+            }
+            index += close;
+            continue;
+        }
+        index += 1;
+    }
+    None
+}
+fn markdown_link_end(chars: &[char], start: usize) -> Option<usize> {
+    if chars.get(start) != Some(&'[') {
+        return None;
+    }
+    let mut index = start + 1;
+    let label_start = index;
+    while index < chars.len() && chars[index] != ']' {
+        index += 1;
+    }
+    if index >= chars.len() {
+        return None;
+    }
+    let label: String = chars[label_start..index].iter().collect();
+    if label.is_empty() || label.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    if chars.get(index + 1) != Some(&'(') {
+        return None;
+    }
+    let mut depth = 0;
+    let mut cursor = index + 1;
+    while cursor < chars.len() {
+        match chars[cursor] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(cursor);
+                }
+            }
+            _ => {}
+        }
+        cursor += 1;
+    }
+    None
 }
 fn sentence_closer(ch: char) -> bool {
     matches!(
