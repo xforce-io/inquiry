@@ -161,7 +161,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
 /// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
-/// A Markdown heading is article syntax only when the hash marks are followed by a space. A blockquote mark is too.
+/// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -412,10 +412,10 @@ fn strip_markdown_links(text: &str) -> String {
             let tail = &after[label_end + 1..];
             if !label.is_empty()
                 && !label.bytes().all(|byte| byte.is_ascii_digit())
-                && let Some(url_end) = tail.strip_prefix('(').and_then(|url| url.find(')'))
+                && let Some(url_end) = matching_paren(tail)
             {
                 out.push_str(label);
-                rest = &tail[1 + url_end + 1..];
+                rest = &tail[url_end + 1..];
                 continue;
             }
         }
@@ -424,6 +424,25 @@ fn strip_markdown_links(text: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+fn matching_paren(text: &str) -> Option<usize> {
+    if !text.starts_with('(') {
+        return None;
+    }
+    let mut depth = 0;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 fn strip_list_prefix(text: &str) -> String {
     if let Some(rest) = text
@@ -533,13 +552,23 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
     let mut sentences = Vec::new();
     let mut current = String::new();
     let mut new_block = false;
-    for (index, ch) in chars.iter().enumerate() {
-        current.push(*ch);
-        let newline = *ch == '\n';
-        let boundary = newline
-            || matches!(ch, '。' | '！' | '？' | '!' | '?')
-            || (*ch == '.' && english_sentence_period(&chars, index));
-        if boundary {
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+        current.push(ch);
+        let newline = ch == '\n';
+        let punctuation = matches!(ch, '。' | '！' | '？' | '!' | '?')
+            || (ch == '.' && english_sentence_period(&chars, index));
+        if punctuation {
+            index += 1;
+            while index < chars.len() && sentence_closer(chars[index]) {
+                current.push(chars[index]);
+                index += 1;
+            }
+        } else {
+            index += 1;
+        }
+        if punctuation || newline {
             let sentence = current.trim().to_owned();
             if sentence.is_empty() {
                 new_block = true;
@@ -561,6 +590,12 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
         });
     }
     sentences
+}
+fn sentence_closer(ch: char) -> bool {
+    matches!(
+        ch,
+        '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | '］' | '}' | '｝'
+    )
 }
 fn english_sentence_period(chars: &[char], index: usize) -> bool {
     if chars.get(index + 1).copied() == Some('[') {

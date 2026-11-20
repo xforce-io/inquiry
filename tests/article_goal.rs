@@ -421,6 +421,24 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "accelerated",
         "Growth accelerated.",
     ));
+    assert!(!article::paragraph_states_marked_claims(
+        "研究称“完全无效。” [1]",
+        "[1]",
+        "研究称",
+        "研究称“该方法有效。”",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "研究称“该方法有效。” [1]",
+        "[1]",
+        "研究称",
+        "研究称“该方法有效。”",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[Rust](https://example.com/Rust_(language)) is fast [1].",
+        "[1]",
+        "fast",
+        "Rust is fast.",
+    ));
     assert!(article::paragraph_states_marked_claims(
         "| 存储 | The system stores events. [1] |",
         "[1]",
