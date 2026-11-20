@@ -152,7 +152,1269 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
     }
     Ok(())
 }
-pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]) -> Result<()> {
+/// The saved paragraph states each sentence that carries this marker.
+/// A short quote inside the paragraph is not enough when the sentence says something else.
+/// A marker after the sentence end belongs to that sentence when it stays in the same block. A marker after a blank line does not.
+/// List marks, links, emphasis, and table pipes are article syntax. A citation marker inside a code span or a link URL is not a citation.
+/// An underscore inside a word is not emphasis. Emphasis and links inside a code span stay literal.
+/// A table cell is compared alone only when its row belongs to a table that has a separator line. A row may contain one pipe.
+/// A citation marker before a closing quote or parenthesis stays on that sentence, and the space before the marker is removed.
+/// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
+/// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
+/// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
+/// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
+/// Emphasis closers sitting immediately after that punctuation stay on the sentence. A sentence end in a link label ends the sentence after the whole link. Punctuation inside the URL does not.
+/// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr., Eq., or Inc. stays in the sentence, even when a citation marker follows it.
+/// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence. A single letter after a word can end a sentence, as in "Plan A. Results improved." A. Smith stays one sentence. A hashtag without a space is not a heading, so a soft wrap keeps it in the sentence.
+/// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
+pub fn paragraph_states_marked_claims(
+    conclusion: &str,
+    marker: &str,
+    quote: &str,
+    paragraph: &str,
+) -> bool {
+    let sentences: Vec<String> = split_sentences(paragraph)
+        .into_iter()
+        .map(|sentence| sentence.text)
+        .collect();
+    paragraph_matches(
+        &marked_claims(conclusion, marker),
+        marker,
+        quote,
+        paragraph,
+        &sentences,
+    )
+}
+fn paragraph_matches(
+    claims: &[String],
+    marker: &str,
+    quote: &str,
+    paragraph: &str,
+    sentences: &[String],
+) -> bool {
+    if quote.trim().is_empty() || !paragraph.contains(quote) || claims.is_empty() {
+        return false;
+    }
+    claims.iter().all(|claim| {
+        sentences
+            .iter()
+            .any(|sentence| claim_equals_source(claim, marker, sentence))
+    })
+}
+fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
+    claims_by_marker(conclusion)
+        .remove(marker)
+        .unwrap_or_default()
+}
+fn claims_by_marker(conclusion: &str) -> BTreeMap<String, Vec<String>> {
+    let mut claims: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for sentence in sentences_with_trailing_markers(conclusion) {
+        if strip_article_syntax(&sentence).trim().is_empty() {
+            continue;
+        }
+        for marker in citation_markers(&sentence) {
+            claims.entry(marker).or_default().push(sentence.clone());
+        }
+    }
+    claims
+}
+fn claim_equals_source(article: &str, marker: &str, source: &str) -> bool {
+    let source = normalize_claim(source);
+    let mut article = normalize_claim(article);
+    let extra = count_marker(&article, marker).saturating_sub(count_marker(&source, marker));
+    for _ in 0..extra {
+        let Some(next) = remove_rightmost_marker(&article, marker) else {
+            break;
+        };
+        article = normalize_claim(&next);
+    }
+    article = normalize_claim(&strip_trailing_markers_not_in_source(&article, &source));
+    // Drop article syntax only after citation markers are removed, so a `[n]`
+    // inside a code span stays literal text instead of becoming another citation.
+    article = normalize_claim(&strip_article_syntax(&article));
+    article == source
+}
+fn count_marker(text: &str, marker: &str) -> usize {
+    citation_markers(text)
+        .iter()
+        .filter(|found| found.as_str() == marker)
+        .count()
+}
+fn sentences_with_trailing_markers(text: &str) -> Vec<String> {
+    let mut prepared: Vec<String> = Vec::new();
+    for sentence in split_sentences(&isolate_marked_table_cells(text)) {
+        let (leading, rest) = peel_leading_markers(&sentence.text);
+        let same_block = !sentence.new_block;
+        if same_block
+            && !leading.is_empty()
+            && let Some(previous) = prepared.last_mut()
+        {
+            previous.push(' ');
+            previous.push_str(&leading);
+        }
+        if !rest.is_empty() {
+            if !same_block || leading.is_empty() || prepared.is_empty() {
+                prepared.push(if leading.is_empty() || !same_block {
+                    sentence.text.trim().to_owned()
+                } else {
+                    format!("{leading} {rest}")
+                });
+            } else {
+                prepared.push(rest);
+            }
+        } else if !leading.is_empty() && (!same_block || prepared.is_empty()) {
+            prepared.push(leading);
+        }
+    }
+    prepared
+}
+fn peel_leading_markers(sentence: &str) -> (String, String) {
+    let mut rest = sentence.trim().to_owned();
+    let mut leading = String::new();
+    loop {
+        let markers = citation_markers(&rest);
+        let Some(first) = markers.first() else {
+            break;
+        };
+        if !rest.starts_with(first) {
+            break;
+        }
+        if !leading.is_empty() {
+            leading.push(' ');
+        }
+        leading.push_str(first);
+        rest = rest[first.len()..].trim_start().to_owned();
+    }
+    (leading, rest)
+}
+fn citation_markers(text: &str) -> Vec<String> {
+    citation_marker_ranges(text)
+        .into_iter()
+        .map(|(start, end)| text[start..end].to_owned())
+        .collect()
+}
+/// Byte ranges of `[digits]` citations. A marker inside a code span, or inside a Markdown link URL, is not a citation.
+fn citation_marker_ranges(text: &str) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut char_to_byte = Vec::with_capacity(chars.len() + 1);
+    let mut byte = 0;
+    for ch in &chars {
+        char_to_byte.push(byte);
+        byte += ch.len_utf8();
+    }
+    char_to_byte.push(byte);
+    let mut ranges = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index) {
+            index = end + 1;
+            continue;
+        }
+        if let Some(link_end) = markdown_link_end(&chars, index) {
+            let label_close = chars[index + 1..=link_end]
+                .iter()
+                .position(|ch| *ch == ']')
+                .map(|offset| index + 1 + offset);
+            if let Some(label_close) = label_close {
+                let label: String = chars[index + 1..label_close].iter().collect();
+                let label_byte = char_to_byte[index + 1];
+                for (start, end) in citation_marker_ranges(&label) {
+                    ranges.push((label_byte + start, label_byte + end));
+                }
+            }
+            index = link_end + 1;
+            continue;
+        }
+        if let Some(end) = digit_marker_end(&chars, index) {
+            ranges.push((char_to_byte[index], char_to_byte[end + 1]));
+            index = end + 1;
+            continue;
+        }
+        index += 1;
+    }
+    ranges
+}
+fn digit_marker_end(chars: &[char], index: usize) -> Option<usize> {
+    if chars.get(index) != Some(&'[') {
+        return None;
+    }
+    let mut cursor = index + 1;
+    if !chars.get(cursor).is_some_and(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    while chars.get(cursor).is_some_and(|ch| ch.is_ascii_digit()) {
+        cursor += 1;
+    }
+    if chars.get(cursor) == Some(&']') {
+        Some(cursor)
+    } else {
+        None
+    }
+}
+fn strip_article_syntax(sentence: &str) -> String {
+    let protected = map_outside_code_spans(sentence, |text| {
+        strip_emphasis_markers(&strip_markdown_links(text))
+    });
+    let plain = strip_code_spans(&protected);
+    strip_block_prefix(plain.trim())
+}
+fn map_outside_code_spans(text: &str, mut transform: impl FnMut(&str) -> String) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut index = 0;
+    let mut segment = 0;
+    while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index) {
+            let outside: String = chars[segment..index].iter().collect();
+            out.push_str(&transform(&outside));
+            out.extend(chars[index..=end].iter().copied());
+            index = end + 1;
+            segment = index;
+            continue;
+        }
+        index += 1;
+    }
+    let outside: String = chars[segment..].iter().collect();
+    out.push_str(&transform(&outside));
+    out
+}
+fn strip_code_spans(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('`') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start..];
+        let marks = after.chars().take_while(|ch| *ch == '`').count();
+        let body = &after[marks..];
+        let fence = &after[..marks];
+        if let Some(end) = body.find(fence) {
+            out.push_str(&body[..end]);
+            rest = &body[end + fence.len()..];
+        } else {
+            out.push_str(fence);
+            rest = body;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+fn strip_block_prefix(text: &str) -> String {
+    let mut rest = text.trim().to_owned();
+    loop {
+        let trimmed = rest.trim();
+        if let Some(after) = trimmed.strip_prefix('>') {
+            rest = after.trim_start().to_owned();
+        } else if let Some(after) = heading_body(trimmed) {
+            rest = after.to_owned();
+        } else {
+            let listed = strip_list_prefix(trimmed);
+            if listed.trim() == trimmed {
+                break;
+            }
+            rest = listed;
+        }
+    }
+    rest
+}
+fn heading_body(text: &str) -> Option<&str> {
+    let marks = text.bytes().take_while(|byte| *byte == b'#').count();
+    if (1..=6).contains(&marks) && text.as_bytes().get(marks) == Some(&b' ') {
+        Some(text[marks..].trim_start())
+    } else {
+        None
+    }
+}
+fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
+    let (mut start, mut end) = citation_marker_ranges(text)
+        .into_iter()
+        .rev()
+        .find(|(start, end)| &text[*start..*end] == marker)?;
+    let before_space = start > 0 && text.as_bytes()[start - 1].is_ascii_whitespace();
+    let after_raw = &text[end..];
+    let after = after_raw.trim_start();
+    let matching_closer = after.chars().next().is_some_and(|ch| {
+        sentence_closer(ch) && delimiter_stack(&text[..start]).last() == Some(&ch)
+    });
+    if before_space
+        && (after.is_empty()
+            || after.starts_with(['.', '。', '！', '？', '!', '?'])
+            || matching_closer)
+    {
+        start -= 1;
+    } else if before_space && after_raw.starts_with(|ch: char| ch.is_whitespace()) {
+        end += text[end..].chars().next().map(char::len_utf8).unwrap_or(1);
+    }
+    Some(format!("{}{}", &text[..start], &text[end..]))
+}
+fn strip_trailing_markers_not_in_source(article: &str, source: &str) -> String {
+    let mut text = article.trim().to_owned();
+    let mut source_body = source.trim().to_owned();
+    let terminator = text
+        .chars()
+        .last()
+        .filter(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'));
+    if terminator.is_some() {
+        text.pop();
+        text = text.trim_end().to_owned();
+    }
+    if source_body
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'))
+    {
+        source_body.pop();
+        source_body = source_body.trim_end().to_owned();
+    }
+    loop {
+        let markers = citation_markers(&text);
+        let Some(last) = markers.last() else {
+            break;
+        };
+        if !text.ends_with(last.as_str()) || source_body.ends_with(last.as_str()) {
+            break;
+        }
+        text.truncate(text.len() - last.len());
+        text = text.trim_end().to_owned();
+    }
+    if let Some(ch) = terminator {
+        text.push(ch);
+    }
+    text
+}
+fn strip_emphasis_markers(text: &str) -> String {
+    let text = strip_paired(text, "**", false);
+    let text = strip_paired(&text, "__", true);
+    let text = strip_paired(&text, "*", false);
+    strip_paired(&text, "_", true)
+}
+fn strip_paired(text: &str, marker: &str, reject_intra_word: bool) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find(marker) {
+        let after = &rest[start + marker.len()..];
+        let opener = !after.starts_with(char::is_whitespace) && !after.is_empty();
+        if opener && let Some(end) = after.find(marker) {
+            let inside = &after[..end];
+            let followed_by_word = after[end + marker.len()..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_alphanumeric());
+            let preceded_by_word = rest[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| ch.is_alphanumeric());
+            let intra_word = reject_intra_word && (preceded_by_word || followed_by_word);
+            if !intra_word
+                && !inside.is_empty()
+                && !inside.ends_with(char::is_whitespace)
+                && !inside.contains('\n')
+            {
+                out.push_str(&rest[..start]);
+                out.push_str(inside);
+                rest = &after[end + marker.len()..];
+                continue;
+            }
+        }
+        out.push_str(&rest[..start + marker.len()]);
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+fn strip_markdown_links(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find('[') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        if let Some(label_end) = after.find(']') {
+            let label = &after[..label_end];
+            let tail = &after[label_end + 1..];
+            if !label.is_empty()
+                && !label.bytes().all(|byte| byte.is_ascii_digit())
+                && let Some(url_end) = matching_paren(tail)
+            {
+                out.push_str(label);
+                rest = &tail[url_end + 1..];
+                continue;
+            }
+        }
+        out.push('[');
+        rest = &rest[start + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+fn matching_paren(text: &str) -> Option<usize> {
+    if !text.starts_with('(') {
+        return None;
+    }
+    let mut depth = 0;
+    for (index, ch) in text.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+fn strip_list_prefix(text: &str) -> String {
+    if let Some(rest) = text
+        .strip_prefix("- ")
+        .or_else(|| text.strip_prefix("* "))
+        .or_else(|| text.strip_prefix("+ "))
+    {
+        return rest.trim().to_owned();
+    }
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index > 0 && text[index..].starts_with(". ") {
+        return text[index + 2..].trim().to_owned();
+    }
+    text.to_owned()
+}
+fn join_markdown_soft_wraps(text: &str) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        let line = line.trim_end_matches('\r');
+        let previous = index
+            .checked_sub(1)
+            .map(|prior| lines[prior].trim_end_matches('\r'));
+        let quote_continued =
+            previous.is_some_and(|prior| blockquote_continuation(prior.trim(), line.trim()));
+        if let Some(prior) = previous {
+            if markdown_block_break(prior, line) {
+                out.push('\n');
+            } else if !out.ends_with([' ', '\t']) {
+                out.push(' ');
+            }
+        }
+        if quote_continued {
+            out.push_str(blockquote_body(line));
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+fn markdown_block_break(previous: &str, next: &str) -> bool {
+    let previous_text = previous.trim();
+    let next_text = next.trim();
+    if previous_text.is_empty() || next_text.is_empty() {
+        return true;
+    }
+    if blockquote_continuation(previous_text, next_text) {
+        return false;
+    }
+    if markdown_block_line(next_text) {
+        return true;
+    }
+    markdown_block_line(previous_text) && !list_continuation(previous, next)
+}
+fn blockquote_continuation(previous: &str, next: &str) -> bool {
+    previous.starts_with('>')
+        && next.starts_with('>')
+        && !blockquote_body(previous).is_empty()
+        && !blockquote_body(next).is_empty()
+}
+fn blockquote_body(line: &str) -> &str {
+    let mut rest = line.trim();
+    while let Some(after) = rest.strip_prefix('>') {
+        rest = after.trim_start();
+    }
+    rest
+}
+fn list_continuation(previous: &str, next: &str) -> bool {
+    markdown_list_item(previous.trim_start())
+        && (next.starts_with("  ") || next.starts_with('\t'))
+        && !markdown_block_line(next.trim_start())
+}
+fn markdown_block_line(trimmed: &str) -> bool {
+    heading_body(trimmed).is_some()
+        || trimmed.starts_with('>')
+        || trimmed.starts_with("```")
+        || markdown_list_item(trimmed)
+}
+fn markdown_list_item(trimmed: &str) -> bool {
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || ordered_list_item(trimmed)
+}
+fn ordered_list_item(trimmed: &str) -> bool {
+    let digits = trimmed
+        .bytes()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    digits > 0 && trimmed[digits..].starts_with(". ")
+}
+struct SplitSentence {
+    text: String,
+    /// A newline, including a blank line, separates this sentence from the previous one.
+    new_block: bool,
+}
+/// A Markdown table keeps only cells that carry a citation marker.
+/// Those cells are separate blocks, so an unmarked cell is not part of the claim.
+/// A line of prose that merely contains pipes is not a table unless that block has a separator row.
+fn isolate_marked_table_cells(text: &str) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let in_table = table_line_mask(&lines);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if in_table[index] {
+                marked_table_line(line)
+            } else {
+                line.trim_end_matches('\r').to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+fn table_line_mask(lines: &[&str]) -> Vec<bool> {
+    let mut mask = vec![false; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        if !table_row_line(lines[index]) {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < lines.len() && table_row_line(lines[index]) {
+            index += 1;
+        }
+        if (start..index).any(|cursor| table_separator_line(lines[cursor])) {
+            for item in &mut mask[start..index] {
+                *item = true;
+            }
+        }
+    }
+    mask
+}
+fn table_row_line(line: &str) -> bool {
+    let trimmed = line.trim().trim_end_matches('\r');
+    table_separator_line(line) || trimmed.contains('|')
+}
+fn table_separator_line(line: &str) -> bool {
+    let trimmed = line.trim().trim_end_matches('\r');
+    if !trimmed.contains('|') {
+        return false;
+    }
+    let cells = table_cells(trimmed);
+    !cells.is_empty() && cells.iter().all(|cell| separator_cell(cell))
+}
+fn separator_cell(cell: &str) -> bool {
+    let mut chars = cell.trim().chars().peekable();
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+    let mut dashes = 0;
+    while chars.peek() == Some(&'-') {
+        chars.next();
+        dashes += 1;
+    }
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+    dashes >= 3 && chars.next().is_none()
+}
+fn marked_table_line(line: &str) -> String {
+    let line = line.trim_end_matches('\r');
+    let trimmed = line.trim();
+    if !trimmed.contains('|') {
+        return line.to_owned();
+    }
+    let marked: Vec<String> = table_cells(trimmed)
+        .into_iter()
+        .filter(|cell| !citation_markers(cell).is_empty())
+        .collect();
+    if marked.is_empty() {
+        line.to_owned()
+    } else {
+        format!("\n\n{}\n\n", marked.join("\n\n"))
+    }
+}
+fn table_cells(line: &str) -> Vec<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let mut cells = Vec::new();
+    let mut current = String::new();
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '\\' && chars.get(index + 1) == Some(&'|') {
+            current.push('|');
+            index += 2;
+            continue;
+        }
+        if let Some(end) = code_span_end(&chars, index) {
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            continue;
+        }
+        if chars[index] == '|' {
+            let cell = current.trim().to_owned();
+            if !cell.is_empty() {
+                cells.push(cell);
+            }
+            current.clear();
+            index += 1;
+            continue;
+        }
+        current.push(chars[index]);
+        index += 1;
+    }
+    let cell = current.trim().to_owned();
+    if !cell.is_empty() {
+        cells.push(cell);
+    }
+    cells
+}
+/// A blank line starts a new block. A citation marker there is not part of the previous sentence.
+fn split_sentences(text: &str) -> Vec<SplitSentence> {
+    let text = join_markdown_soft_wraps(text);
+    let chars: Vec<char> = text.chars().collect();
+    let mut sentences = Vec::new();
+    let mut current = String::new();
+    let mut new_block = false;
+    let mut index = 0;
+    while index < chars.len() {
+        if let Some(end) = code_span_end(&chars, index) {
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            continue;
+        }
+        if let Some(end) = markdown_link_end(&chars, index) {
+            let ends_sentence = link_label_has_sentence_end(&chars, index, end);
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            if ends_sentence {
+                let sentence = current.trim().to_owned();
+                if sentence.is_empty() {
+                    new_block = true;
+                } else {
+                    sentences.push(SplitSentence {
+                        text: sentence,
+                        new_block,
+                    });
+                    new_block = false;
+                }
+                current.clear();
+            }
+            continue;
+        }
+        let ch = chars[index];
+        current.push(ch);
+        let newline = ch == '\n';
+        let punctuation = matches!(ch, '。' | '！' | '？' | '!' | '?')
+            || (ch == '.' && english_sentence_period(&chars, index));
+        if punctuation {
+            let period = index;
+            index += 1;
+            let tail = trailing_syntax_end(&chars, index);
+            while index < tail {
+                current.push(chars[index]);
+                index += 1;
+            }
+            if let Some(end) = marker_before_matching_closer(&chars, period, index) {
+                current.extend(chars[index..end].iter().copied());
+                index = end;
+            }
+        } else {
+            index += 1;
+        }
+        if punctuation || newline {
+            let sentence = current.trim().to_owned();
+            if sentence.is_empty() {
+                new_block = true;
+            } else {
+                sentences.push(SplitSentence {
+                    text: sentence,
+                    new_block,
+                });
+                new_block = newline;
+            }
+            current.clear();
+        }
+    }
+    let tail = current.trim().to_owned();
+    if !tail.is_empty() {
+        sentences.push(SplitSentence {
+            text: tail,
+            new_block,
+        });
+    }
+    sentences
+}
+fn code_span_end(chars: &[char], start: usize) -> Option<usize> {
+    if chars.get(start) != Some(&'`') {
+        return None;
+    }
+    let mut marks = 0;
+    while chars.get(start + marks) == Some(&'`') {
+        marks += 1;
+    }
+    let mut index = start + marks;
+    while index < chars.len() {
+        if chars[index] == '`' {
+            let mut close = 0;
+            while chars.get(index + close) == Some(&'`') {
+                close += 1;
+            }
+            if close >= marks {
+                return Some(index + marks - 1);
+            }
+            index += close;
+            continue;
+        }
+        index += 1;
+    }
+    None
+}
+fn markdown_link_end(chars: &[char], start: usize) -> Option<usize> {
+    if chars.get(start) != Some(&'[') {
+        return None;
+    }
+    let mut index = start + 1;
+    let label_start = index;
+    while index < chars.len() && chars[index] != ']' {
+        index += 1;
+    }
+    if index >= chars.len() {
+        return None;
+    }
+    let label: String = chars[label_start..index].iter().collect();
+    if label.is_empty() || label.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    if chars.get(index + 1) != Some(&'(') {
+        return None;
+    }
+    let mut depth = 0;
+    let mut cursor = index + 1;
+    while cursor < chars.len() {
+        match chars[cursor] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(cursor);
+                }
+            }
+            _ => {}
+        }
+        cursor += 1;
+    }
+    None
+}
+fn delimiter_stack(text: &str) -> Vec<char> {
+    let chars: Vec<char> = text.chars().collect();
+    delimiter_stack_before(&chars, chars.len())
+}
+fn delimiter_stack_before(chars: &[char], end: usize) -> Vec<char> {
+    let mut stack = Vec::new();
+    let mut index = 0;
+    while index < end {
+        if let Some(span) = code_span_end(chars, index).or_else(|| markdown_link_end(chars, index))
+        {
+            index = span + 1;
+            continue;
+        }
+        match chars[index] {
+            '"' => {
+                if stack.last() == Some(&'"') {
+                    stack.pop();
+                } else {
+                    stack.push('"');
+                }
+            }
+            '“' => stack.push('”'),
+            '”' if stack.last() == Some(&'”') => {
+                stack.pop();
+            }
+            '(' => stack.push(')'),
+            ')' if stack.last() == Some(&')') => {
+                stack.pop();
+            }
+            '（' => stack.push('）'),
+            '）' if stack.last() == Some(&'）') => {
+                stack.pop();
+            }
+            '「' => stack.push('」'),
+            '」' if stack.last() == Some(&'」') => {
+                stack.pop();
+            }
+            '『' => stack.push('』'),
+            '』' if stack.last() == Some(&'』') => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    stack
+}
+/// A citation between a sentence end and the closer that finishes an open quote or parenthesis stays on that sentence.
+fn marker_before_matching_closer(chars: &[char], period: usize, index: usize) -> Option<usize> {
+    let mut stack = delimiter_stack_before(chars, period);
+    if stack.is_empty() {
+        return None;
+    }
+    let mut look = index;
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let marker_end = digit_marker_end(chars, look)?;
+    look = marker_end + 1;
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let before_closers = look;
+    while chars.get(look).is_some_and(|ch| stack.last() == Some(ch)) {
+        stack.pop();
+        look += 1;
+    }
+    (look > before_closers).then_some(look)
+}
+fn sentence_closer(ch: char) -> bool {
+    matches!(
+        ch,
+        '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | '］' | '}' | '｝'
+    )
+}
+/// Quote and parenthesis closers, then emphasis closers, when they sit on the punctuation.
+/// An emphasis run is kept only when whitespace, the end, or another closer follows it.
+fn trailing_syntax_end(chars: &[char], start: usize) -> usize {
+    let mut look = start;
+    loop {
+        while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
+            look += 1;
+        }
+        let marks = look;
+        while chars
+            .get(look)
+            .is_some_and(|ch| matches!(ch, '*' | '_' | '`'))
+        {
+            look += 1;
+        }
+        if look == marks {
+            return look;
+        }
+        match chars.get(look).copied() {
+            None => return look,
+            Some(ch) if ch.is_whitespace() => return look,
+            Some(ch) if sentence_closer(ch) => continue,
+            _ => return marks,
+        }
+    }
+}
+/// A period inside a link label is a sentence end in the visible text.
+/// The URL stays on that sentence, and the next sentence starts after the link.
+fn link_label_has_sentence_end(chars: &[char], start: usize, link_end: usize) -> bool {
+    let Some(relative) = chars[start + 1..=link_end].iter().position(|ch| *ch == ']') else {
+        return false;
+    };
+    let label_close = start + 1 + relative;
+    let label = &chars[start + 1..label_close];
+    let mut visible = label.to_vec();
+    visible.extend_from_slice(&chars[link_end + 1..]);
+    let mut index = 0;
+    while index < label.len() {
+        if let Some(end) = code_span_end(label, index) {
+            index = end + 1;
+            continue;
+        }
+        let ch = label[index];
+        let punctuation = matches!(ch, '。' | '！' | '？' | '!' | '?')
+            || (ch == '.' && english_sentence_period(&visible, index));
+        if punctuation {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+fn english_sentence_period(chars: &[char], index: usize) -> bool {
+    let mut look = trailing_syntax_end(chars, index + 1);
+    let after_closers = look;
+    if chars.get(look).copied() == Some('[') {
+        return !abbreviation_before(chars, index);
+    }
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let Some(start) = chars.get(look).copied() else {
+        return true;
+    };
+    if look == after_closers {
+        return false;
+    }
+    if start == '[' {
+        return !abbreviation_before(chars, index);
+    }
+    while chars
+        .get(look)
+        .is_some_and(|ch| matches!(ch, '*' | '_' | '`'))
+    {
+        look += 1;
+    }
+    let Some(start) = chars.get(look).copied() else {
+        return true;
+    };
+    if start == '[' {
+        return !abbreviation_before(chars, index);
+    }
+    sentence_start(start) && !abbreviation_before(chars, index)
+}
+fn sentence_start(ch: char) -> bool {
+    ch.is_alphanumeric() || matches!(ch, '"' | '\'' | '“' | '‘' | '(' | '（')
+}
+/// A single letter, or one of these written abbreviations, is not a sentence end
+/// unless the next word opens a sentence, as in `Acme Inc. Revenue rose.`
+/// A company suffix also ends the sentence when a capitalized clause follows, as in `Acme Inc. Customers responded.`
+/// The last letter of an initialism such as `U.S.` starts a new sentence only when a clause
+/// already precedes it and the next word opens that sentence. `U.S. Government` stays together.
+/// `We operate in the U.S. Customers adopted it.` splits.
+const ABBREVIATIONS: &[&str] = &[
+    "capt", "co", "col", "corp", "dr", "eq", "esq", "fig", "gen", "hon", "inc", "jr", "ltd", "mr",
+    "mrs", "ms", "no", "plc", "prof", "rev", "sec", "sgt", "sr", "st", "vol",
+];
+const COMPANY_SUFFIXES: &[&str] = &["co", "corp", "inc", "ltd", "plc"];
+const SENTENCE_OPENERS: &[&str] = &[
+    "a",
+    "an",
+    "and",
+    "but",
+    "he",
+    "however",
+    "i",
+    "it",
+    "meanwhile",
+    "nor",
+    "or",
+    "she",
+    "so",
+    "still",
+    "that",
+    "the",
+    "then",
+    "therefore",
+    "these",
+    "they",
+    "this",
+    "those",
+    "we",
+    "yet",
+];
+const ORDINARY_SUBJECTS: &[&str] = &[
+    "cost",
+    "costs",
+    "demand",
+    "earnings",
+    "employment",
+    "exports",
+    "growth",
+    "imports",
+    "income",
+    "inflation",
+    "output",
+    "price",
+    "prices",
+    "profit",
+    "profits",
+    "results",
+    "revenue",
+    "sales",
+];
+const FINITE_VERBS: &[&str] = &[
+    "are", "be", "been", "can", "could", "did", "do", "does", "fell", "found", "grew", "had",
+    "has", "have", "is", "may", "might", "must", "rose", "said", "says", "shall", "should",
+    "showed", "shows", "was", "were", "will", "would", "worked", "works",
+];
+fn abbreviation_before(chars: &[char], period: usize) -> bool {
+    let mut start = period;
+    while start > 0 && chars[start - 1].is_ascii_alphanumeric() {
+        start -= 1;
+    }
+    let word: String = chars[start..period].iter().collect();
+    if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
+        return !letter_ends_sentence(chars, period, start);
+    }
+    let lower = word.to_ascii_lowercase();
+    if !ABBREVIATIONS.contains(&lower.as_str()) {
+        return false;
+    }
+    if COMPANY_SUFFIXES.contains(&lower.as_str()) {
+        return !company_suffix_ends_sentence(chars, period);
+    }
+    true
+}
+fn letter_ends_sentence(chars: &[char], period: usize, letter: usize) -> bool {
+    let initialism_end = letter > 0 && chars[letter - 1] == '.';
+    if initialism_end {
+        return initialism_starts_new_sentence(chars, period, letter);
+    }
+    // `A. Smith` has no earlier word. `Plan A. Results` does, and the next word opens a sentence.
+    multi_letter_word_before(chars, letter) && sentence_opens_after(chars, period)
+}
+fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) -> bool {
+    clause_before_initialism(chars, letter) && initialism_clause_opens(chars, period)
+}
+fn company_suffix_ends_sentence(chars: &[char], period: usize) -> bool {
+    sentence_opens_after(chars, period) || capitalized_finite_clause(chars, period)
+}
+/// `U.S. Government` stays one name. Another capitalized word plus a finite verb starts a sentence.
+fn initialism_clause_opens(chars: &[char], period: usize) -> bool {
+    if sentence_opens_after(chars, period) {
+        return true;
+    }
+    let Some((next, _)) = words_after_period(chars, period) else {
+        return false;
+    };
+    if next.eq_ignore_ascii_case("government") {
+        return false;
+    }
+    capitalized_finite_clause(chars, period)
+}
+fn capitalized_finite_clause(chars: &[char], period: usize) -> bool {
+    let Some((next, after)) = words_after_period(chars, period) else {
+        return false;
+    };
+    let Some(first) = next.chars().next() else {
+        return false;
+    };
+    first.is_ascii_uppercase()
+        && next.chars().count() > 1
+        && after.is_some_and(|word| finite_verb(&word))
+}
+fn sentence_opens_after(chars: &[char], period: usize) -> bool {
+    let Some((next, after)) = words_after_period(chars, period) else {
+        return false;
+    };
+    let Some(first) = next.chars().next() else {
+        return false;
+    };
+    if !first.is_ascii_uppercase() || next.chars().count() == 1 {
+        return false;
+    }
+    let next = next.to_ascii_lowercase();
+    if SENTENCE_OPENERS.contains(&next.as_str()) {
+        return true;
+    }
+    ORDINARY_SUBJECTS.contains(&next.as_str()) && after.is_some_and(|word| finite_verb(&word))
+}
+fn multi_letter_word_before(chars: &[char], letter: usize) -> bool {
+    if letter == 0 {
+        return false;
+    }
+    let mut index = letter - 1;
+    while chars[index].is_whitespace() {
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+    }
+    let end = index + 1;
+    while index > 0 && chars[index - 1].is_ascii_alphanumeric() {
+        index -= 1;
+    }
+    chars[index..end]
+        .iter()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .count()
+        >= 2
+}
+fn clause_before_initialism(chars: &[char], letter: usize) -> bool {
+    let mut index = letter;
+    loop {
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+        if chars[index] != '.' {
+            break;
+        }
+        if index == 0 {
+            return false;
+        }
+        let before_dot = index - 1;
+        let single_letter = chars[before_dot].is_ascii_alphabetic()
+            && (before_dot == 0 || !chars[before_dot - 1].is_ascii_alphanumeric());
+        if !single_letter {
+            break;
+        }
+        index = before_dot;
+    }
+    loop {
+        if chars[index].is_ascii_lowercase() {
+            return true;
+        }
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+    }
+}
+fn words_after_period(chars: &[char], period: usize) -> Option<(String, Option<String>)> {
+    let mut look = trailing_syntax_end(chars, period + 1);
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    while chars
+        .get(look)
+        .is_some_and(|ch| matches!(ch, '*' | '_' | '`' | '"' | '\'' | '“' | '‘' | '(' | '（'))
+    {
+        look += 1;
+    }
+    let (first, mut look) = take_ascii_word(chars, look)?;
+    while chars
+        .get(look)
+        .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '*' | '_' | '`'))
+    {
+        look += 1;
+    }
+    Some((first, take_ascii_word(chars, look).map(|(word, _)| word)))
+}
+fn take_ascii_word(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let mut end = start;
+    while chars.get(end).is_some_and(|ch| ch.is_ascii_alphanumeric()) {
+        end += 1;
+    }
+    (end > start).then(|| (chars[start..end].iter().collect(), end))
+}
+fn finite_verb(word: &str) -> bool {
+    let word = word.to_ascii_lowercase();
+    FINITE_VERBS.contains(&word.as_str())
+        || (word.len() >= 4
+            && word.ends_with("ed")
+            && word.chars().all(|ch| ch.is_ascii_alphabetic()))
+}
+fn normalize_claim(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+fn cited_paragraph(citation: &Citation, accepted: &[ArtifactData]) -> Result<String> {
+    let artifact = accepted
+        .iter()
+        .find(|item| item.reference.id == citation.artifact_id)
+        .ok_or_else(|| fault("引用资料包未被授权"))?;
+    let source = source_view(artifact, &citation.source_id)?;
+    source
+        .paragraphs
+        .get(citation.paragraph)
+        .cloned()
+        .ok_or_else(|| fault("引用段落不存在"))
+}
+fn quoted_words(text: &str) -> usize {
+    let cjk = text
+        .chars()
+        .filter(|ch| ('\u{3400}'..='\u{9fff}').contains(ch))
+        .count();
+    if cjk == 0 {
+        text.split_whitespace().count()
+    } else {
+        cjk + text
+            .split_whitespace()
+            .filter(|word| word.chars().any(|ch| ch.is_ascii_alphanumeric()))
+            .count()
+    }
+}
+fn copied_claim_text(sentence: &str) -> String {
+    let mut text = normalize_claim(sentence);
+    for marker in citation_markers(&text) {
+        while let Some(next) = remove_rightmost_marker(&text, &marker) {
+            text = normalize_claim(&next);
+        }
+    }
+    normalize_claim(&strip_article_syntax(&text))
+}
+fn canonical_citation_number(digits: &str) -> Option<usize> {
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let number = digits.parse::<usize>().ok()?;
+    (format!("{number}") == digits).then_some(number)
+}
+fn marker_index(marker: &str) -> Option<usize> {
+    marker
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(canonical_citation_number)
+        .and_then(|number| number.checked_sub(1))
+}
+/// Copied marked sentences count toward the same per-URL budget as short quotes.
+/// One sentence position is counted once per URL. A later paste of the same words is another position.
+/// A short quote already inside any counted sentence for that same URL is not added again.
+fn add_copied_sentence_budget(
+    report: &Report,
+    urls: &[String],
+    quotes: &mut BTreeMap<String, usize>,
+) {
+    let sentences = sentences_with_trailing_markers(&report.conclusion);
+    let mut seen: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    let mut billed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (index, sentence) in sentences.iter().enumerate() {
+        if strip_article_syntax(sentence).trim().is_empty() {
+            continue;
+        }
+        let markers = citation_markers(sentence);
+        if markers.is_empty() {
+            continue;
+        }
+        let copied = copied_claim_text(sentence);
+        if copied.is_empty() {
+            continue;
+        }
+        let words = quoted_words(&copied);
+        for marker in markers {
+            let Some(cite_index) = marker_index(&marker) else {
+                continue;
+            };
+            let Some(url) = urls.get(cite_index) else {
+                continue;
+            };
+            if seen.entry(url.clone()).or_default().insert(index) {
+                *quotes.entry(url.clone()).or_default() += words;
+                billed.entry(url.clone()).or_default().push(copied.clone());
+            }
+        }
+    }
+    for (cite_index, citation) in report.citations.iter().enumerate() {
+        let Some(url) = urls.get(cite_index) else {
+            continue;
+        };
+        let quote = normalize_claim(&citation.quote);
+        let already_copied = !quote.is_empty()
+            && billed.get(url).is_some_and(|sentences| {
+                sentences.iter().any(|sentence| sentence.contains(&quote))
+            });
+        if !already_copied {
+            *quotes.entry(url.clone()).or_default() += quoted_words(&citation.quote);
+        }
+    }
+}
+/// `count_copied_sentences` is true only for the claim-paragraph checker.
+/// `article-integrity@1` counts short quotes alone, as it did before that rule existed.
+pub fn check_report(
+    report: &Report,
+    analysis: &Value,
+    accepted: &[ArtifactData],
+    count_copied_sentences: bool,
+) -> Result<()> {
     check_analysis(analysis, accepted)?;
     if analysis["decision"] != "ready" || !analysis["gaps"].as_array().is_some_and(|g| g.is_empty())
     {
@@ -166,6 +1428,7 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         .ok_or_else(|| fault("缺少分析证据"))?;
     let mut used = BTreeSet::new();
     let mut quotes = BTreeMap::<String, usize>::new();
+    let mut urls = Vec::with_capacity(report.citations.len());
     for (index, c) in report.citations.iter().enumerate() {
         let url = verify_citation(c, accepted)?;
         let key = serde_json::to_string(c)?;
@@ -180,34 +1443,78 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         {
             return Err(fault("报告引入重复或未分析的引用"));
         }
-        if !report.conclusion.contains(&format!("[{}]", index + 1)) {
+        let marker = format!("[{}]", index + 1);
+        if !report.conclusion.contains(&marker) {
             return Err(fault("引用未在正文中使用"));
         }
-        let cjk = c
-            .quote
-            .chars()
-            .filter(|x| ('\u{3400}'..='\u{9fff}').contains(x))
-            .count();
-        let words = if cjk == 0 {
-            c.quote.split_whitespace().count()
+        if count_copied_sentences {
+            urls.push(url);
         } else {
-            cjk + c
-                .quote
-                .split_whitespace()
-                .filter(|w| w.chars().any(|x| x.is_ascii_alphanumeric()))
-                .count()
-        };
-        *quotes.entry(url).or_default() += words;
+            *quotes.entry(url).or_default() += quoted_words(&c.quote);
+        }
+    }
+    if count_copied_sentences {
+        add_copied_sentence_budget(report, &urls, &mut quotes);
     }
     if quotes.values().any(|n| *n > 25) {
         return Err(fault("同一来源累计短引文超过二十五词"));
     }
     for part in report.conclusion.split('[').skip(1) {
-        if let Some((n, _)) = part.split_once(']')
-            && let Ok(n) = n.parse::<usize>()
-            && !(1..=report.citations.len()).contains(&n)
-        {
+        let Some((digits, _)) = part.split_once(']') else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let Some(number) = canonical_citation_number(digits) else {
             return Err(fault("正文引用编号悬空"));
+        };
+        if !(1..=report.citations.len()).contains(&number) {
+            return Err(fault("正文引用编号悬空"));
+        }
+    }
+    Ok(())
+}
+/// Marked sentences must be stated by their cited paragraphs.
+/// `article-integrity@1` does not call this. The claim-paragraph rule does.
+pub fn check_claim_sentences(report: &Report, accepted: &[ArtifactData]) -> Result<()> {
+    let claims = claims_by_marker(&report.conclusion);
+    for marker in claims.keys() {
+        let Some(digits) = marker
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let in_range = canonical_citation_number(digits)
+            .is_some_and(|number| (1..=report.citations.len()).contains(&number));
+        if !in_range {
+            return Err(fault("所引段落没有写出带该标记的主张句"));
+        }
+    }
+    let mut cached: BTreeMap<(String, String, usize), (String, Vec<String>)> = BTreeMap::new();
+    for (index, citation) in report.citations.iter().enumerate() {
+        let marker = format!("[{}]", index + 1);
+        let key = (
+            citation.artifact_id.clone(),
+            citation.source_id.clone(),
+            citation.paragraph,
+        );
+        if !cached.contains_key(&key) {
+            let paragraph = cited_paragraph(citation, accepted)?;
+            let sentences = split_sentences(&paragraph)
+                .into_iter()
+                .map(|sentence| sentence.text)
+                .collect();
+            cached.insert(key.clone(), (paragraph, sentences));
+        }
+        let (paragraph, sentences) = &cached[&key];
+        let marked = claims.get(&marker).map(Vec::as_slice).unwrap_or(&[]);
+        if !paragraph_matches(marked, &marker, &citation.quote, paragraph, sentences) {
+            return Err(fault("所引段落没有写出带该标记的主张句"));
         }
     }
     Ok(())
@@ -695,9 +2002,27 @@ impl Executor for Native {
                     let CheckSubject::Artifacts { targets, .. } = &input.subject else { return Err(fault("需要确切报告目标")); };
                     let report: Report = serde_json::from_value(targets["article"].value.clone())?;
                     let accepted = targets.values().map(|t| ArtifactData { reference: ArtifactRef { id:t.artifact_id.clone(),sha256:t.sha256.clone(),slot:if t.value.get("sources").is_some(){"corpus"}else{"input"}.into(),state_id:"goal".into(),visit:1 },bytes:serde_json::to_vec(&t.value).expect("JSON value").into() }).collect::<Vec<_>>();
-                    let result = check_report(&report, &targets["analysis"].value, &accepted);
-                    let (verdict,message) = match result { Ok(()) => ("pass","引用版本、来源段落、分析血缘和短引文边界通过".to_owned()), Err(e) => ("fail",e.message) };
-                    tools.call("artifact.write", json!({"slot":"evaluation","value":{"protocol_version":1,"verdict":verdict,"results":[{"id":"citation_integrity","verdict":verdict,"message":message,"evidence_refs":input.evidence_refs}],"evidence_refs":input.evidence_refs,"violations":[]}})).await?;
+                    let count_copied = input.rules.rules.iter().any(|rule| rule.id == "claim_paragraph");
+                    let structural = check_report(&report, &targets["analysis"].value, &accepted, count_copied).map_err(|error| error.message);
+                    let claim = count_copied.then(|| check_claim_sentences(&report, &accepted).map_err(|error| error.message));
+                    let mut results = Vec::new();
+                    for rule in &input.rules.rules {
+                        let (verdict, message) = match rule.id.as_str() {
+                            "citation_integrity" => match &structural {
+                                Ok(()) => ("pass", "引用版本、来源段落、分析血缘和短引文边界通过".to_owned()),
+                                Err(message) => ("fail", message.clone()),
+                            },
+                            "claim_paragraph" => match &claim {
+                                Some(Ok(())) => ("pass", "所引段落写出了带该标记的主张句".to_owned()),
+                                Some(Err(message)) => ("fail", message.clone()),
+                                None => ("error", "主张句规则未执行".to_owned()),
+                            },
+                            _ => ("error", format!("未知验收规则 {}", rule.id)),
+                        };
+                        results.push(json!({"id":rule.id,"verdict":verdict,"message":message,"evidence_refs":input.evidence_refs}));
+                    }
+                    let verdict = if results.iter().any(|result| result["verdict"] == "error") { "error" } else if results.iter().any(|result| result["verdict"] == "fail") { "fail" } else { "pass" };
+                    tools.call("artifact.write", json!({"slot":"evaluation","value":{"protocol_version":1,"verdict":verdict,"results":results,"evidence_refs":input.evidence_refs,"violations":[]}})).await?;
                 }
             }
             Ok(())

@@ -59,7 +59,7 @@ fn report_and_analysis(a: &ArtifactData) -> (Report, Value) {
         Report {
             answer_status: "answered".into(),
             conclusion:
-                "## Mechanism\nSupported statement [1].\n## Limits\nConditional conclusion.".into(),
+                "## Mechanism\nA saved official statement with a real mechanism and limitation [1].\n## Limits\nConditional conclusion.".into(),
             citations: vec![citation],
             limitations: vec![],
         },
@@ -70,7 +70,7 @@ fn report_and_analysis(a: &ArtifactData) -> (Report, Value) {
 fn exact_source_versions_and_analysis_lineage_are_required() {
     let a = artifact(&serde_json::to_value(package(1)).unwrap());
     let (report, analysis) = report_and_analysis(&a);
-    article::check_report(&report, &analysis, std::slice::from_ref(&a)).unwrap();
+    article::check_report(&report, &analysis, std::slice::from_ref(&a), false).unwrap();
     for kind in [
         "version",
         "source",
@@ -96,10 +96,1053 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
             _ => r.answer_status = "insufficient_evidence".into(),
         }
         assert!(
-            article::check_report(&r, &an, std::slice::from_ref(&a)).is_err(),
+            article::check_report(&r, &an, std::slice::from_ref(&a), false).is_err(),
             "{kind}"
         );
     }
+}
+#[test]
+fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
+    let saved = artifact(&serde_json::to_value(package(1)).unwrap());
+    let (mut report, mut analysis) = report_and_analysis(&saved);
+    let paragraph = "A saved official statement with a real mechanism and limitation.";
+    let quote = report.citations[0].quote.clone();
+    assert!(paragraph.contains(&quote));
+    assert!(article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+    report.conclusion =
+        "## Mechanism\nSubmit stores the action in the scenario [1].\n## Limits\nConditional conclusion."
+            .into();
+    assert!(paragraph.contains(&quote));
+    assert!(!article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
+    assert!(article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_err());
+    let stated = "A saved official statement with a real mechanism and limitation";
+    for conclusion in [
+        format!("{stated} [1][2]."),
+        "A saved **official statement** with a real mechanism and limitation [1].".to_string(),
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims(&conclusion, "[1]", &quote, paragraph),
+            "{conclusion}"
+        );
+    }
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{stated} [1][2]."),
+        "[2]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        &format!("{stated} [10]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The official statement proves there is no limitation [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph} [1]"),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph} [1] Next sentence."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("- {stated} [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "A saved [official statement](https://example.com/official) with a real mechanism and limitation [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Treatment X is effective [1].",
+        "[1]",
+        "Treatment X",
+        "The study did not conclude that Treatment X is effective.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph}[1]"),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Prior work [12] showed X [1].",
+        "[1]",
+        "showed X",
+        "Prior work [12] showed X.",
+    ));
+    report.conclusion =
+        "A saved official\nstatement with a real mechanism and limitation [1].".into();
+    assert!(article::paragraph_states_marked_claims(
+        &report.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+    assert!(article::paragraph_states_marked_claims(
+        &format!("- {stated}\n  [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{stated} [1]."),
+        "[1]",
+        "real mechanism",
+        "A saved official\nstatement with a real mechanism and limitation.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "A saved official\n\nstatement [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        &format!("## Mechanism\n{stated} [1]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "U.K. policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.S. policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.K. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "U.S. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The U.K. Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "The U.S. Government policy is restricted.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Officials said the U.K. Government is restricted [1].",
+        "[1]",
+        "restricted",
+        "Officials said the U.S. Government is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Officials said the U.S. Government is restricted [1].",
+        "[1]",
+        "restricted",
+        "Officials said the U.S. Government is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The policy changed [1].",
+        "[1]",
+        "policy",
+        "We operate in the U.S. The policy changed.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The policy changed [1].",
+        "[1]",
+        "policy",
+        "U.S. The policy changed.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is significant! [1]",
+        "[1]",
+        "significant",
+        "The result is significant!",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is significant? [1]",
+        "[1]",
+        "significant",
+        "The result is significant?",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is *significant* [1].",
+        "[1]",
+        "significant",
+        "The result is significant.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is _significant_ [1].",
+        "[1]",
+        "significant",
+        "The result is significant.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The file_name is saved [1].",
+        "[1]",
+        "file_name",
+        "The file_name is saved.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Prof. Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Dr. Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Other Inc. reported a loss [1].",
+        "[1]",
+        "reported",
+        "Acme Inc. reported a loss.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Acme Inc. reported a loss [1].",
+        "[1]",
+        "reported",
+        "Acme Inc. reported a loss.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Revenue rose [1].",
+        "[1]",
+        "Revenue",
+        "Acme Inc. Revenue rose.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Costs rose [1].",
+        "[1]",
+        "rose",
+        "Acme Inc. Revenue rose.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Customers responded [1].",
+        "[1]",
+        "responded",
+        "Acme Inc. Customers responded.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Customers adopted it [1].",
+        "[1]",
+        "adopted",
+        "We operate in the U.S. Customers adopted it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Clients adopted it [1].",
+        "[1]",
+        "adopted",
+        "We operate in the U.S. Customers adopted it.",
+    ));
+    for suffix in ["Ltd", "Co", "Corp", "Plc"] {
+        assert!(
+            !article::paragraph_states_marked_claims(
+                &format!("Other {suffix}. reported a loss [1]."),
+                "[1]",
+                "reported",
+                &format!("Acme {suffix}. reported a loss."),
+            ),
+            "{suffix}"
+        );
+    }
+    assert!(article::paragraph_states_marked_claims(
+        "| --- |\n| The system stores events. [1] |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The system [1] stores events.",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Prior work [1] showed X [1].",
+        "[1]",
+        "showed",
+        "Prior work [1] showed X.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "2 shows a decrease [1].",
+        "[1]",
+        "decrease",
+        "Eq. 2 shows a decrease.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Eq. 2 shows a decrease [1].",
+        "[1]",
+        "decrease",
+        "Eq. 2 shows a decrease.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "完整主张。\n\n[1]",
+        "[1]",
+        "主张",
+        "完整主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "完整主张。\n[1]",
+        "[1]",
+        "主张",
+        "完整主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "This is true. [1] Next sentence.",
+        "[1]",
+        "true",
+        "This is true. Next sentence.",
+    ));
+    for paragraph in [
+        "Released in 2024. It works.",
+        "This uses an API. It works.",
+        "This is v2. It works.",
+        "Pick it up. It works.",
+        "This is normal. It works.",
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims("It works [1].", "[1]", "works", paragraph),
+            "{paragraph}"
+        );
+    }
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Prof. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "2024 was stronger [1].",
+        "[1]",
+        "stronger",
+        "Revenue grew. 2024 was stronger.",
+    ));
+    for paragraph in [
+        "The launch was in May. Sales rose.",
+        "The launch used Rust. Sales rose.",
+        "The buyer was Acme. Sales rose.",
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims("Sales rose [1].", "[1]", "Sales", paragraph),
+            "{paragraph}"
+        );
+    }
+    assert!(article::paragraph_states_marked_claims(
+        "## The system stores events [1].",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "> The system stores events [1].",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "0 improves performance [1].",
+        "[1]",
+        "improves",
+        "Version 2.0 improves performance.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Version 2.0 improves performance [1].",
+        "[1]",
+        "improves",
+        "Version 2.0 improves performance.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Dr. [1] Smith found it.",
+        "[1]",
+        "found",
+        "Dr. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "eBay grew [1].",
+        "[1]",
+        "grew",
+        "First sentence. eBay grew.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "#Growth accelerated [1].",
+        "[1]",
+        "accelerated",
+        "Growth accelerated.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "## Growth accelerated [1].",
+        "[1]",
+        "accelerated",
+        "Growth accelerated.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "研究称“完全无效。” [1]",
+        "[1]",
+        "研究称",
+        "研究称“该方法有效。”",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "研究称“该方法有效。” [1]",
+        "[1]",
+        "研究称",
+        "研究称“该方法有效。”",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[Rust](https://example.com/Rust_(language)) is fast [1].",
+        "[1]",
+        "fast",
+        "Rust is fast.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "First sentence. **Second sentence** [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "First sentence. école grew [1].",
+        "[1]",
+        "grew",
+        "First sentence. école grew.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "> A whole sentence\n> continued [1].",
+        "[1]",
+        "continued",
+        "A whole sentence continued.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "He said \"It works.\" [1]",
+        "[1]",
+        "works",
+        "He said \"It works.\" Next sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "> 主张。\n>\n> [1]",
+        "[1]",
+        "主张",
+        "主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use a | b [1].",
+        "[1]",
+        "Use",
+        "Use a | b.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Run `cmd` now [1].",
+        "[1]",
+        "cmd",
+        "Run cmd now.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "See [docs](https://example.com/query?x=1) now [1].",
+        "[1]",
+        "docs",
+        "See docs now.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "| 项 | 主张 |\n| --- | --- |\n| 前缀 | Unsupported prefix \\| Exact tail [1]. |",
+        "[1]",
+        "Exact",
+        "Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| 项 | 主张 |\n| --- | --- |\n| 前缀 | Unsupported prefix \\| Exact tail [1]. |",
+        "[1]",
+        "Exact",
+        "Unsupported prefix | Exact tail.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The result is 2 * 3 [1].",
+        "[1]",
+        "result",
+        "The result is 2 3.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result is 2 * 3 [1].",
+        "[1]",
+        "result",
+        "The result is 2 * 3.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use `items[1]` in the query. Exact source sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact source sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Use `items[1]` in the query [1].",
+        "[1]",
+        "query",
+        "Use items in the query.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use `items[1]` in the query [1].",
+        "[1]",
+        "items",
+        "Use items[1] in the query.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "See [section](https://example.test/[1]) for details. Exact source sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact source sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The field is foo_bar_baz [1].",
+        "[1]",
+        "field",
+        "The field is foobarbaz.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The field is foo_bar_baz [1].",
+        "[1]",
+        "field",
+        "The field is foo_bar_baz.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Unsupported prefix | middle | Exact tail [1].",
+        "[1]",
+        "Exact",
+        "Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Unsupported prefix | middle | Exact tail [1].",
+        "[1]",
+        "Exact",
+        "Unsupported prefix | middle | Exact tail.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Sales rose [1].",
+        "[1]",
+        "Sales",
+        "We operate in the U.S. Sales rose.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "A. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Results improved [1].",
+        "[1]",
+        "improved",
+        "Plan A. Results improved.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Meet A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Meet A. Smith found it [1].",
+        "[1]",
+        "found",
+        "Meet A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Exact source\n#hashtag continues [1].",
+        "[1]",
+        "hashtag",
+        "Exact source #hashtag continues.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "A. B. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. B. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "B. Smith found it [1].",
+        "[1]",
+        "found",
+        "A. B. Smith found it.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "名称 | 主张\n--- | ---\n其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "名称 | 主张\n--- | ---\n其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "其它 | Exact sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "其它 | Exact sentence [1].",
+        "[1]",
+        "Exact",
+        "Exact sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Use `*x*` now [1].",
+        "[1]",
+        "now",
+        "Use *x* now.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Use `*x*` now [1].",
+        "[1]",
+        "now",
+        "Use x now.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "He said \"It works. [1]\"",
+        "[1]",
+        "works",
+        "He said \"It works.\"",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "He said \"It works. [1]\" Next sentence.",
+        "[1]",
+        "works",
+        "He said \"It works.\" Next sentence.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "He said \"It fails. [1]\"",
+        "[1]",
+        "works",
+        "He said \"It works.\"",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "The result (see note [1]).",
+        "[1]",
+        "note",
+        "The result (see note).",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "**First sentence.** Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "*First sentence.* Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "_First sentence._ Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "**U.S.** Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "We operate in the **U.S.** Sales rose [1].",
+        "[1]",
+        "rose",
+        "We operate in the U.S. Sales rose.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[First sentence.](https://example.com) Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[First sentence.](https://example.com) [1]",
+        "[1]",
+        "First",
+        "First sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "See [Rust](https://example.com/a.b) is fast [1].",
+        "[1]",
+        "fast",
+        "See Rust is fast.",
+    ));
+    let mut padded = report.clone();
+    padded.conclusion = format!("{paragraph} [1]. Fabricated claim [01].");
+    assert!(article::paragraph_states_marked_claims(
+        &padded.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::check_claim_sentences(&padded, std::slice::from_ref(&saved)).is_err());
+    assert!(
+        article::check_report(&padded, &analysis, std::slice::from_ref(&saved), false).is_err()
+    );
+    padded.conclusion = format!("{paragraph} [1]. See the [note].");
+    assert!(article::check_claim_sentences(&padded, std::slice::from_ref(&saved)).is_ok());
+    assert!(article::check_report(&padded, &analysis, std::slice::from_ref(&saved), false).is_ok());
+    assert!(article::paragraph_states_marked_claims(
+        "| 存储 | 其它 |\n| --- | --- |\n| The system stores events. [1] | 未引用 |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| 项 | 主张 |\n| --- | --- |\n| 存储 | The system stores events. [1] |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    let mut second = report.citations[0].clone();
+    second.quote = "real mechanism".into();
+    report.citations.push(second.clone());
+    report.conclusion =
+        format!("## Mechanism\n{stated} [1][2].\n## Limits\nConditional conclusion.");
+    let mut evidence = serde_json::to_value(&second).unwrap();
+    evidence["id"] = json!("e2");
+    analysis["evidence"].as_array_mut().unwrap().push(evidence);
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).unwrap();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+}
+#[test]
+fn copied_sentence_counts_toward_the_quote_budget() {
+    fn fixture(
+        paragraph: &str,
+        quotes: &[&str],
+        conclusion: &str,
+    ) -> (ArtifactData, Report, Value) {
+        let paragraphs = vec![paragraph.to_owned()];
+        let corpus = Corpus {
+            version: 1,
+            round: 1,
+            sources: vec![Source {
+                source_id: "r1s1".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/official",
+                    "requested_url": "https://example.com/official",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())
+                }),
+                paragraphs,
+            }],
+            searches: vec![],
+            limitations: vec![],
+        };
+        let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+        let citations: Vec<Citation> = quotes
+            .iter()
+            .map(|quote| Citation {
+                artifact_id: saved.reference.id.clone(),
+                sha256: saved.reference.sha256.clone(),
+                source_id: "r1s1".into(),
+                paragraph: 0,
+                quote: (*quote).to_owned(),
+            })
+            .collect();
+        let evidence: Vec<_> = citations
+            .iter()
+            .enumerate()
+            .map(|(index, citation)| {
+                let mut item = serde_json::to_value(citation).unwrap();
+                item["id"] = json!(format!("e{}", index + 1));
+                item
+            })
+            .collect();
+        let ids: Vec<_> = (1..=citations.len()).map(|n| format!("e{n}")).collect();
+        let report = Report {
+            answer_status: "answered".into(),
+            conclusion: conclusion.to_owned(),
+            citations,
+            limitations: vec![],
+        };
+        let analysis = json!({
+            "evidence": evidence,
+            "judgments": [{"text": "Supported judgment", "support": ids, "counter": [], "limitations": []}],
+            "decision": "ready",
+            "gaps": [],
+            "coverage": [{"question": "Mechanism", "status": "answered", "conclusion": "A supported mechanism", "evidence_ids": ids}],
+            "search_queries": []
+        });
+        (saved, report, analysis)
+    }
+    fn within_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
+        let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
+        article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved), true).is_ok()
+    }
+    fn over_budget(paragraph: &str, quotes: &[&str], conclusion: &str) -> bool {
+        let (saved, report, analysis) = fixture(paragraph, quotes, conclusion);
+        article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok()
+            && article::check_report(&report, &analysis, std::slice::from_ref(&saved), true)
+                .is_err()
+    }
+
+    let long = "Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu";
+    assert_eq!(long.split_whitespace().count(), 26);
+    assert!(over_budget(
+        &format!("{long}."),
+        &["Alpha"],
+        &format!("{long} [1]."),
+    ));
+    let (saved, report, analysis) =
+        fixture(&format!("{long}."), &["Alpha"], &format!("{long} [1]."));
+    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved), false).is_ok());
+    let fitted = "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+    assert_eq!(fitted.split_whitespace().count(), 20);
+    let quote = "One two three four five six seven eight nine ten";
+    assert_eq!(quote.split_whitespace().count(), 10);
+    assert!(within_budget(
+        &format!("{fitted}."),
+        &[quote],
+        &format!("{fitted} [1]."),
+    ));
+    let first = "One two three four five six seven eight nine ten eleven twelve thirteen";
+    let second = "Fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix";
+    assert_eq!(first.split_whitespace().count(), 13);
+    assert_eq!(second.split_whitespace().count(), 13);
+    assert!(over_budget(
+        &format!("{first}. {second}."),
+        &["One", "Fourteen"],
+        &format!("{first} [1]. {second} [2]."),
+    ));
+    assert!(within_budget(
+        &format!("{first}. {second}."),
+        &["One"],
+        &format!("{first} [1]."),
+    ));
+    assert!(over_budget(
+        &format!("{first}."),
+        &["One"],
+        &format!("{first} [1]. {first} [1]."),
+    ));
+    assert!(within_budget(
+        &format!("{first}."),
+        &["One", "two"],
+        &format!("{first} [1][2]."),
+    ));
+    let han = "一二三四五六七八九十一二三四五六七八九十一二三四五六";
+    assert_eq!(han.chars().count(), 26);
+    assert!(over_budget(
+        &format!("{han}。"),
+        &["一二"],
+        &format!("{han} [1]。")
+    ));
+    let shared = "fifteen sixteen seventeen eighteen nineteen twenty";
+    assert_eq!(shared.split_whitespace().count(), 6);
+    let host = format!(
+        "One two three four five six seven eight nine ten eleven twelve thirteen fourteen {shared}"
+    );
+    assert_eq!(host.split_whitespace().count(), 20);
+    let tail = "Alpha beta gamma";
+    assert_eq!(tail.split_whitespace().count(), 3);
+    assert!(!tail.contains("fifteen"));
+    assert!(within_budget(
+        &format!("{host}. {tail}."),
+        &["One", shared],
+        &format!("{host} [1]. {tail} [2]."),
+    ));
+    let other = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango";
+    assert_eq!(other.split_whitespace().count(), 20);
+    assert!(!other.contains("fifteen"));
+    let paragraph_b = format!("{other}. {shared}.");
+    let paragraphs_a = vec![format!("{host}.")];
+    let paragraphs_b = vec![paragraph_b];
+    let corpus = Corpus {
+        version: 1,
+        round: 1,
+        sources: vec![
+            Source {
+                source_id: "r1s1".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/official",
+                    "requested_url": "https://example.com/official",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs_a).unwrap())
+                }),
+                paragraphs: paragraphs_a,
+            },
+            Source {
+                source_id: "r1s2".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/other",
+                    "requested_url": "https://example.com/other",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs_b).unwrap())
+                }),
+                paragraphs: paragraphs_b,
+            },
+        ],
+        searches: vec![],
+        limitations: vec![],
+    };
+    let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+    let quotes = ["One", shared];
+    let sources = ["r1s1", "r1s2"];
+    let citations: Vec<Citation> = quotes
+        .iter()
+        .zip(sources)
+        .map(|(quote, source_id)| Citation {
+            artifact_id: saved.reference.id.clone(),
+            sha256: saved.reference.sha256.clone(),
+            source_id: source_id.into(),
+            paragraph: 0,
+            quote: (*quote).to_owned(),
+        })
+        .collect();
+    let evidence: Vec<_> = citations
+        .iter()
+        .enumerate()
+        .map(|(index, citation)| {
+            let mut item = serde_json::to_value(citation).unwrap();
+            item["id"] = json!(format!("e{}", index + 1));
+            item
+        })
+        .collect();
+    let ids = vec!["e1".to_string(), "e2".to_string()];
+    let report = Report {
+        answer_status: "answered".into(),
+        conclusion: format!("{host} [1]. {other} [2]."),
+        citations,
+        limitations: vec![],
+    };
+    let analysis = json!({
+        "evidence": evidence,
+        "judgments": [{"text": "Supported judgment", "support": ids, "counter": [], "limitations": []}],
+        "decision": "ready",
+        "gaps": [],
+        "coverage": [{"question": "Mechanism", "status": "answered", "conclusion": "A supported mechanism", "evidence_ids": ids}],
+        "search_queries": []
+    });
+    assert!(article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok());
+    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved), true).is_err());
+}
+#[test]
+fn many_marked_sentences_are_checked_without_reparsing_each_citation() {
+    let sentence = "Alpha sentence is saved exactly";
+    let paragraphs = vec![format!("{sentence}.")];
+    let corpus = Corpus {
+        version: 1,
+        round: 1,
+        sources: vec![Source {
+            source_id: "r1s1".into(),
+            origin: "user-input".into(),
+            fact: json!({
+                "usable": true,
+                "final_url": "https://example.com/official",
+                "requested_url": "https://example.com/official",
+                "title": "Controlled source (synthetic)",
+                "reason": "Controlled saved paragraph, not real research",
+                "captured_at": "2026-11-12T17:00:00Z",
+                "fetch_status": "captured",
+                "http_status": 200,
+                "truncated": false,
+                "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs).unwrap())
+            }),
+            paragraphs,
+        }],
+        searches: vec![],
+        limitations: vec![],
+    };
+    let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+    let mut conclusion = format!("{}.", "background ".repeat(20_000).trim());
+    let citations = (1..=100)
+        .map(|n| {
+            conclusion.push_str(&format!(" {sentence} [{n}]."));
+            Citation {
+                artifact_id: saved.reference.id.clone(),
+                sha256: saved.reference.sha256.clone(),
+                source_id: "r1s1".into(),
+                paragraph: 0,
+                quote: "Alpha".into(),
+            }
+        })
+        .collect();
+    let report = Report {
+        answer_status: "answered".into(),
+        conclusion,
+        citations,
+        limitations: vec![],
+    };
+    let started = std::time::Instant::now();
+    article::check_claim_sentences(&report, std::slice::from_ref(&saved)).unwrap();
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 #[async_trait]
 impl Executor for Agent {
@@ -196,7 +1239,7 @@ impl Executor for Agent {
                 c.as_object_mut().unwrap().remove("id");
                 (
                     "report",
-                    json!({"answer_status":"answered","conclusion":"## Mechanism\nA supported official statement [1].\n## Boundary\nA conditional conclusion.","citations":[c],"limitations":[]}),
+                    json!({"answer_status":"answered","conclusion":"## Mechanism\nA saved official statement with a real mechanism and limitation [1].\n## Boundary\nA conditional conclusion.","citations":[c],"limitations":[]}),
                 )
             }
             GoalRunRole::NodeMember { node_id, .. } if node_id == "review" => {
@@ -233,7 +1276,7 @@ fn article_registry_freezes_without_running_a_model() {
     let (mut registry, _) =
         orchestration::registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
     let receipt = registry.validate_and_freeze(&bindings).unwrap();
-    assert_eq!(receipt.capabilities.len(), 6);
+    assert_eq!(receipt.capabilities.len(), 8);
     assert!(receipt.profiles.contains_key(orchestration::PROFILE));
 }
 #[tokio::test]
@@ -295,7 +1338,7 @@ async fn data_review_failure_reaches_revision_and_final_goal_verdict_is_independ
         let revise = final_state
             .runs
             .values()
-            .find(|run| run.entry_ref == "article-revise@1")
+            .find(|run| run.entry_ref == "article-revise@2")
             .unwrap();
         let policy = &revise.budget.as_ref().unwrap().policy;
         assert_eq!(policy.max_run_ms, Some(300_000));

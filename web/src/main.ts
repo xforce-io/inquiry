@@ -1,4 +1,6 @@
 import './style.css';
+import { httpHref, splitInline } from './articleInline';
+import { finalArticleLabel, runStatusLabel } from './articleStatus';
 import { buildCitationAliases, resolveCitationIndex, type Citation, type Evidence } from './citationRefs';
 import { projectRun, renderRun, resetRunView, type RawEvent, type RunMode } from './run-view';
 
@@ -60,23 +62,26 @@ function researchError(error:NonNullable<Snapshot['error']>){
  return '本阶段执行或检查未能完成，已有成果仍保留。请核对原因后再决定是否新建研究。';
 }
 function inline(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
- const pattern=/(\*\*[^*]+\*\*|`[^`]+`|\[[A-Za-z0-9_-]+\])/g;
- let start=0;
- for(const match of text.matchAll(pattern)){
-  parent.append(document.createTextNode(text.slice(start,match.index)));
-  const value=match[0];
-  if(value.startsWith('[')){
-   const index=resolveCitationIndex(value.slice(1,-1),citations.length,aliases);
-   if(index!==undefined){
-    const citation=citations[index];
-    const b=button(value.slice(1,-1),'cite',()=>void showSource(id,citation.artifact_id,citation));
-    b.setAttribute('aria-label',`查看来源${index+1}`);
-    parent.append(b);
-   }else{parent.append(document.createTextNode(value));}
-  }else{parent.append(element(value.startsWith('**')?'strong':'code','',value.slice(value.startsWith('**')?2:1,value.startsWith('**')?-2:-1)));}
-  start=(match.index||0)+value.length;
+ appendInline(parent,splitInline(text),citations,id,aliases);
+}
+function appendInline(parent:HTMLElement,pieces:ReturnType<typeof splitInline>,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){
+ for(const piece of pieces){
+  if(piece.kind==='text'){parent.append(document.createTextNode(piece.text));continue;}
+  if(piece.kind==='code'){parent.append(element('code','',piece.text));continue;}
+  if(piece.kind==='strong'||piece.kind==='em'){const node=element(piece.kind==='strong'?'strong':'em');appendInline(node,piece.children,citations,id,aliases);parent.append(node);continue;}
+  if(piece.kind==='link'){
+   const href=httpHref(piece.href);
+   if(!href){appendInline(parent,piece.children,citations,id,aliases);continue;}
+   const anchor=document.createElement('a');anchor.href=href;anchor.rel='noreferrer noopener';anchor.target='_blank';appendInline(anchor,piece.children,citations,id,aliases);parent.append(anchor);continue;
+  }
+  const index=resolveCitationIndex(piece.marker.slice(1,-1),citations.length,aliases);
+  if(index!==undefined){
+   const citation=citations[index];
+   const b=button(piece.marker.slice(1,-1),'cite',()=>void showSource(id,citation.artifact_id,citation));
+   b.setAttribute('aria-label',`查看来源${index+1}`);
+   parent.append(b);
+  }else parent.append(document.createTextNode(piece.marker));
  }
- parent.append(document.createTextNode(text.slice(start)));
 }
 function markdown(parent:HTMLElement,text:string,citations:Citation[],id:string,aliases?:ReadonlyMap<string,number>){const lines=text.split('\n');let i=0;while(i<lines.length){const line=lines[i].trim();if(!line){i++;continue;}if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3}/.test(lines[i+1])){const table=element('table');const wrap=element('div','table-wrap');const cells=(s:string)=>s.trim().replace(/^\||\|$/g,'').split('|').map(s=>s.trim());const header=element('tr');for(const cell of cells(line)){const th=element('th');inline(th,cell,citations,id,aliases);header.append(th);}table.append(header);i+=2;while(i<lines.length&&lines[i].includes('|')&&lines[i].trim()){const row=element('tr');for(const cell of cells(lines[i])){const td=element('td');inline(td,cell,citations,id,aliases);row.append(td);}table.append(row);i++;}wrap.append(table);parent.append(wrap);continue;}
  const heading=line.match(/^(#{1,4})\s+(.+)/);if(heading){const h=element(heading[1].length<=2?'h2':'h3');inline(h,heading[2],citations,id,aliases);parent.append(h);i++;continue;}
@@ -116,8 +121,7 @@ function goalDetail(data:View,id:string){
  const original=element('details','question-full');original.append(element('summary','','完整问题与研究范围'),element('pre','',snapshot.inputs.question+'\n\n研究范围：'+snapshot.inputs.scope));heading.append(original);if(goal.spec.parent_goal_id)heading.append(link('查看前次研究','/research/'+encodeURIComponent(goal.spec.parent_goal_id),'back-link'));main.append(heading);
  const status=element('section','status-card '+snapshot.status),row=element('div','status-row');
  const checkFailed=snapshot.status==='failed'&&(snapshot.progress.phase==='goal_checking'||goal.nodes.review?.status==='failed');
- const labels:Record<string,string>={running:'研究进行中',waiting:'等待澄清或补充',completed:'研究已完成',not_met:'文章未达标',failed:checkFailed?'质量检查未完成':'研究未完成',cancelling:'正在确认停止',cancelled:'已停止',stopped:'研究已暂停',blocked:'研究已阻塞'};
- row.append(element('strong','',labels[snapshot.status]||'状态待核对'));
+ row.append(element('strong','',runStatusLabel(snapshot.status,checkFailed)));
  if(!terminal.has(snapshot.status)&&snapshot.status!=='cancelling')row.append(button('停止研究','quiet danger',()=>void requestCancel(id)));
  row.append(button('刷新','quiet',()=>void load(id,true)));status.append(row);
  if(snapshot.status==='cancelling')status.append(element('p','muted','停止请求已受理，尚在等待实际停止确认。'));
@@ -137,8 +141,8 @@ function goalDetail(data:View,id:string){
    const report=output.value as Report,card=element('section','report-card');const tabs=element('div','version-tabs');
    for(const o of articles){const b=button(o.stage==='revise'?'最终稿':'初稿',o.stage===selected?'primary':'quiet',()=>{selectedVersions.set(id,o.stage!);detail(data,id);});b.setAttribute('aria-pressed',String(o.stage===selected));tabs.append(b);}card.append(tabs);
    const evaluations=(data.evaluations||[]).filter(e=>Object.values(e.subject.targets||{}).some(t=>t.artifact_id===output.artifact.id&&t.sha256===output.artifact.sha256));
-   const finals=evaluations.filter(e=>e.phase==='goal_final');const achieved=selected==='revise'&&goal.outcome==='achieved'&&finals.length===2&&finals.every(e=>e.verdict==='pass');
-   card.append(element('p','eyebrow',selected==='draft'?'初稿 · 不代表最终达标':achieved?'最终文章 · 已达标':goal.outcome==='not_met'?'最终文章 · 未达标':'最终文章 · 评价待核对'));
+   const finals=evaluations.filter(e=>e.phase==='goal_final');
+   card.append(element('p','eyebrow',finalArticleLabel({stage:selected==='revise'?'revise':'draft',goalOutcome:goal.outcome,results:finals.flatMap(e=>e.evaluation.results)})));
    const analysis=data.outputs.find(o=>o.stage==='synthesize'&&o.artifact.slot==='analysis')?.value as {evidence:Evidence[]}|undefined;
    const aliases=buildCitationAliases(report.citations,analysis?.evidence||[]);
    const body=element('article','report-body');markdown(body,report.conclusion,report.citations,id,aliases);card.append(body);
@@ -147,7 +151,7 @@ function goalDetail(data:View,id:string){
    if(checkFailed&&selected==='revise')notice(quality,'最终质量检查未完成，当前文章保留可读，不能判为已达标。');
    for(const check of goal.evaluations||[])if(check.error)notice(quality,'检查错误：'+check.check_id+'。已有评价与文章均保留。');
    if(!evaluations.length)quality.append(element('p','muted','尚无针对该确切版本的已接纳评价。'));
-   const names:Record<string,string>={Q1:'问题覆盖',Q2:'机制解释',Q3:'跨源综合',Q4:'论证与证据',Q5:'反证与边界',Q6:'成稿与结论',citation_integrity:'引用核对'};
+   const names:Record<string,string>={Q1:'问题覆盖',Q2:'机制解释',Q3:'跨源综合',Q4:'论证与证据',Q5:'反证与边界',Q6:'成稿与结论',citation_integrity:'引用核对',claim_paragraph:'主张句核对'};
    for(const evaluation of evaluations)for(const result of evaluation.evaluation.results){const block=element('section','quality-item '+result.verdict);block.append(element('h3','',`${names[result.id]||result.id} · ${{pass:'达标',fail:'未达标',error:'检查错误'}[result.verdict]||'待核对'}`),element('p','quality-message',result.message));quality.append(block);}card.append(quality);main.append(card,run);
  }else{main.append(run);const empty=element('section','report-empty');empty.append(element('h2','','文章尚未形成'),element('p','muted','下方保留已接纳的范围、资料与分析。'));main.append(empty);}
  const sources=element('section','sources-card');sources.append(element('h2','','研究资料'));

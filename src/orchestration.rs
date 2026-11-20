@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use taskloop::*;
 
-pub const PROFILE: &str = "inquiry-article@1";
-pub const TEMPLATE: &str = "inquiry-article@1";
+pub const PROFILE: &str = "inquiry-article@2";
+pub const TEMPLATE: &str = "inquiry-article@2";
 pub fn limits() -> GoalLimits {
     GoalLimits {
         max_wall_ms: 1_800_000,
@@ -127,6 +127,12 @@ fn entry(
 fn port(schema: &str, required: bool) -> Value {
     json!({"schema_ref":schema,"required":required,"source_policy":{"kind":"artifact"}})
 }
+fn capability_version(mut value: Value, version: &str) -> Value {
+    let id = value["id"].as_str().unwrap_or("article").to_owned();
+    value["version"] = json!(version);
+    value["members"]["worker"]["entry_ref"] = json!(format!("{id}@{version}"));
+    value
+}
 fn capability(id: &str, inputs: Value, outputs: Value, question: bool) -> Value {
     let projections = outputs
         .as_object()
@@ -178,6 +184,9 @@ pub(crate) fn opened_comparison_clause(id: &str) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+fn marked_sentence_clause() -> &'static str {
+    " A sentence carrying a numeric citation marker must equal one whole sentence of that citation's saved paragraph after the marker and article syntax are removed. Copy that sentence only when the copied sentences and short quotes for the same URL stay within 25 words; a Chinese character counts as one word, and a short quote already inside a copied sentence is not counted again. Otherwise do not paste the sentence. Do not paraphrase a sentence you paste. Unmarked synthesis may stand beside it."
 }
 fn semantic_pass_conditions() -> [(&'static str, &'static str, &'static str); 6] {
     [
@@ -450,6 +459,23 @@ pub fn registry(
             entry(executor, &instruction, input, &allowed, &outputs, skill),
             policy(id, ms, calls),
         )?;
+        if matches!(id, "article-draft" | "article-revise") {
+            let mut claim_instruction = instruction.clone();
+            claim_instruction.push_str(marked_sentence_clause());
+            let claim_entry = entry(
+                executor,
+                &claim_instruction,
+                input,
+                &allowed,
+                &outputs,
+                true,
+            );
+            let mut claim_policy = policy(id, ms, calls);
+            claim_policy.policy_id = format!("{id}-claim-v2");
+            #[cfg(test)]
+            note_registered_stage(&format!("{id}@2"), &claim_instruction, ms);
+            r.register_entry(format!("{id}@2"), claim_entry, claim_policy)?;
+        }
     }
     let scope_outputs = if native {
         json!({"plan":{"schema_ref":"article-plan"},"discoveries":{"schema_ref":"article-discoveries"}})
@@ -480,20 +506,24 @@ pub fn registry(
     let mut writing = common;
     writing["analysis"] = port("article-analysis", true);
     writing["corpus2"] = port("article-corpus", true);
-    r.register_capability(serde_json::from_value(capability(
+    let draft_cap = capability(
         "article-draft",
         writing.clone(),
         json!({"report":{"schema_ref":"article-report"}}),
         true,
-    ))?)?;
+    );
+    r.register_capability(serde_json::from_value(draft_cap.clone())?)?;
+    r.register_capability(serde_json::from_value(capability_version(draft_cap, "2"))?)?;
     writing["draft"] = port("article-report", true);
     writing["review"] = port("_tl.evaluation-candidate@1", true);
-    r.register_capability(serde_json::from_value(capability(
+    let revise_cap = capability(
         "article-revise",
         writing,
         json!({"report":{"schema_ref":"article-report"}}),
         true,
-    ))?)?;
+    );
+    r.register_capability(serde_json::from_value(revise_cap.clone())?)?;
+    r.register_capability(serde_json::from_value(capability_version(revise_cap, "2"))?)?;
     let review_ports = json!({"draft":port("article-report",true),"plan":port("article-plan",true),"analysis":port("article-analysis",true),"corpus1":port("article-corpus",true),"corpus2":port("article-corpus",true)});
     r.register_capability(serde_json::from_value(json!({"protocol_version":1,"id":"article-review","version":"1","kind":"work","inputs":review_ports,"outputs":{"evaluation":{"schema_ref":"_tl.evaluation-candidate@1"}},"gate":"_tl.schema@1","max_rule_check_ms":2000,"members":{"checker":{"entry_ref":"article-semantic@1","input_mode":"check_request"}},"join":{"kind":"object-by-worker","outputs":{"evaluation":{"kind":"member","member_id":"checker","slot":"evaluation"}}},"evaluation":{"purpose":"data","checker_ref":"article-semantic@1","target_ports":{"draft":"draft","plan":"plan","analysis":"analysis","corpus1":"corpus1","corpus2":"corpus2"}}}))?)?;
     let mut requirements = Vec::new();
@@ -513,6 +543,52 @@ pub fn registry(
         requirements.push(json!({"id":name,"phase":"goal_final","checker_ref":format!("article-{name}@1"),"rules_digest":digest,"target_outputs":targets,"required":true}));
         plan_checks.insert(name,json!({"phase":"goal_final","checker_ref":format!("article-{name}@1"),"targets":targets}));
     }
+    let claim_rules = vec![
+        json!({"id":"citation_integrity","instruction":"Verify exact saved source bytes, citations and analysis lineage.","pass_condition":"All citation checks pass and report is answered.","evidence_required":true}),
+        json!({"id":"claim_paragraph","instruction":"The cited paragraph must state each marked sentence.","pass_condition":"Each marked sentence equals one whole sentence of its cited paragraph.","evidence_required":true}),
+    ];
+    let claim_digest = r.register_rules(
+        "article-integrity-claim",
+        &serde_json::to_vec(&json!({"protocol_version":1,"id":"article-integrity-claim","version":"1","rules":claim_rules}))?,
+    )?;
+    r.register_entry(
+        "article-integrity@2",
+        entry(
+            "article.integrity",
+            "Check exact source versions, citation lineage, and marked sentences.",
+            "_tl.check-input@1",
+            &["artifact.write"],
+            &[("evaluation", "_tl.evaluation-candidate@1")],
+            false,
+        ),
+        policy("integrity-claim", 30000, 2),
+    )?;
+    r.register_checker(
+        "article-integrity@2",
+        CheckerContract {
+            entry_ref: "article-integrity@2".into(),
+            rules_ref: "article-integrity-claim".into(),
+            result_slot: "evaluation".into(),
+            fresh_context: true,
+            goal_input_fields: vec!["scope".into()],
+        },
+    )?;
+    let requirements_v2 = requirements
+        .iter()
+        .map(|item| {
+            let mut item = item.clone();
+            if item["id"] == "integrity" {
+                item["checker_ref"] = json!("article-integrity@2");
+                item["rules_digest"] = json!(claim_digest);
+            }
+            item
+        })
+        .collect::<Vec<_>>();
+    let mut plan_checks_v2 = plan_checks.clone();
+    plan_checks_v2.insert(
+        "integrity",
+        json!({"phase":"goal_final","checker_ref":"article-integrity@2","targets":["article","analysis","plan","corpus1","corpus2"]}),
+    );
     let goal = json!({"kind":"goal","pointer":"/goal"});
     let mut nodes = BTreeMap::new();
     nodes.insert(
@@ -574,7 +650,11 @@ pub fn registry(
         template_node("article-revise", &["review"], draft_inputs),
     );
     let outputs = json!({"plan":{"node_id":"scope","port":"plan"},"corpus1":{"node_id":"collect","port":"corpus"},"archive1":{"node_id":"collect","port":"archive"},"analysis_initial":{"node_id":"analyze","port":"analysis"},"corpus2":{"node_id":"supplement","port":"corpus"},"archive2":{"node_id":"supplement","port":"archive"},"analysis":{"node_id":"synthesize","port":"analysis"},"draft":{"node_id":"draft","port":"report"},"review":{"node_id":"review","port":"evaluation"},"article":{"node_id":"revise","port":"report"}});
-    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"1","nodes":nodes,"outputs":outputs,"checks":plan_checks}))?)?;
+    let mut nodes_v2 = nodes.clone();
+    nodes_v2.get_mut("draft").expect("draft")["capabilities"] = json!(["article-draft@2"]);
+    nodes_v2.get_mut("revise").expect("revise")["capabilities"] = json!(["article-revise@2"]);
+    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"1","nodes":nodes.clone(),"outputs":outputs.clone(),"checks":plan_checks}))?)?;
+    r.register_template(serde_json::from_value(json!({"id":"inquiry-article","version":"2","nodes":nodes_v2,"outputs":outputs,"checks":plan_checks_v2}))?)?;
     let mut profile_outputs = BTreeMap::new();
     for (alias, schema, cap) in [
         ("plan", "article-plan", "article-scope"),
@@ -615,14 +695,39 @@ pub fn registry(
     if native {
         capabilities.push("article-initial-analysis@1".into());
     }
-    r.register_profile(serde_json::from_value(json!({"id":"inquiry-article","version":"1","goal_input_schema":"article-input","goal_selectors":{"/goal":"article-text"},"planner_entry_ref":"article-planner@1","capabilities":capabilities,"planning_input_schemas":["article-clarification"],"templates":[TEMPLATE],"outputs":profile_outputs,"final_outputs":["article"],"checks":requirements,"allowed_tools":tools()}))?)?;
+    let profile_v1 = json!({"id":"inquiry-article","version":"1","goal_input_schema":"article-input","goal_selectors":{"/goal":"article-text"},"planner_entry_ref":"article-planner@1","capabilities":capabilities.clone(),"planning_input_schemas":["article-clarification"],"templates":["inquiry-article@1"],"outputs":profile_outputs,"final_outputs":["article"],"checks":requirements,"allowed_tools":tools()});
+    let capabilities_v2 = capabilities
+        .iter()
+        .map(|id| match id.as_str() {
+            "article-draft@1" => "article-draft@2".to_owned(),
+            "article-revise@1" => "article-revise@2".to_owned(),
+            other => other.to_owned(),
+        })
+        .collect::<Vec<_>>();
+    let mut profile_v2 = profile_v1.clone();
+    profile_v2["version"] = json!("2");
+    profile_v2["templates"] = json!([TEMPLATE]);
+    profile_v2["checks"] = json!(requirements_v2);
+    profile_v2["capabilities"] = json!(capabilities_v2);
+    profile_v2["outputs"]["draft"]["allowed_capabilities"] = json!(["article-draft@2"]);
+    profile_v2["outputs"]["article"]["allowed_capabilities"] = json!(["article-revise@2"]);
+    r.register_profile(serde_json::from_value(profile_v1)?)?;
+    r.register_profile(serde_json::from_value(profile_v2)?)?;
     let receipt = r.validate_and_freeze(bindings)?;
     let options = OrchestrationOptions {
         grants: BTreeMap::from([(
             "local-readonly".into(),
             GoalGrant {
-                profile_digests: vec![receipt.profiles[PROFILE].clone()],
-                capabilities,
+                profile_digests: vec![
+                    receipt.profiles["inquiry-article@1"].clone(),
+                    receipt.profiles[PROFILE].clone(),
+                ],
+                capabilities: {
+                    let mut granted = capabilities.clone();
+                    granted.push("article-draft@2".into());
+                    granted.push("article-revise@2".into());
+                    granted
+                },
                 tools: tools(),
                 limits: limits(),
             },
@@ -718,6 +823,25 @@ mod tests {
         let (revise, revise_ms) = registered("article-revise");
         assert!(draft.contains(writing));
         assert!(revise.contains(writing));
+        assert!(marked_sentence_clause().contains("25 words"));
+        assert!(marked_sentence_clause().contains("do not paste the sentence"));
+        assert!(!draft.contains(marked_sentence_clause()));
+        assert!(!revise.contains(marked_sentence_clause()));
+        assert!(
+            registered("article-draft@2")
+                .0
+                .contains(marked_sentence_clause())
+        );
+        assert!(
+            registered("article-revise@2")
+                .0
+                .contains(marked_sentence_clause())
+        );
+        assert!(
+            !registered("article-analysis")
+                .0
+                .contains(marked_sentence_clause())
+        );
         assert!(writing.contains("set answer_status=answered"));
         assert!(writing.contains("into limitations"));
         assert!(writing.contains("Do not invent those facts."));
