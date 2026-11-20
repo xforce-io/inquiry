@@ -163,6 +163,12 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         paragraph,
     ));
     assert!(article::paragraph_states_marked_claims(
+        &format!("{paragraph} [1] Next sentence."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::paragraph_states_marked_claims(
         &format!("- {stated} [1]."),
         "[1]",
         &quote,
@@ -452,7 +458,7 @@ fn article_registry_freezes_without_running_a_model() {
     let (mut registry, _) =
         orchestration::registry(Path::new(env!("CARGO_MANIFEST_DIR")), &bindings).unwrap();
     let receipt = registry.validate_and_freeze(&bindings).unwrap();
-    assert_eq!(receipt.capabilities.len(), 6);
+    assert_eq!(receipt.capabilities.len(), 8);
     assert!(receipt.profiles.contains_key(orchestration::PROFILE));
 }
 #[tokio::test]

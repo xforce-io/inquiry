@@ -497,6 +497,9 @@ fn english_sentence_period(chars: &[char], index: usize) -> bool {
     let Some(start) = chars.get(look).copied() else {
         return true;
     };
+    if start == '[' {
+        return true;
+    }
     sentence_start(start) && ordinary_word_before(chars, index)
 }
 fn sentence_start(ch: char) -> bool {
