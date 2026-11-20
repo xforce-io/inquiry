@@ -722,6 +722,69 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "The result (see note).",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "**First sentence.** Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "*First sentence.* Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "_First sentence._ Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "**U.S.** Government policy is restricted [1].",
+        "[1]",
+        "policy",
+        "U.S. Government policy is restricted.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "We operate in the **U.S.** Sales rose [1].",
+        "[1]",
+        "rose",
+        "We operate in the U.S. Sales rose.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[First sentence.](https://example.com) Second sentence [1].",
+        "[1]",
+        "Second",
+        "First sentence. Second sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "[First sentence.](https://example.com) [1]",
+        "[1]",
+        "First",
+        "First sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "See [Rust](https://example.com/a.b) is fast [1].",
+        "[1]",
+        "fast",
+        "See Rust is fast.",
+    ));
+    let mut padded = report.clone();
+    padded.conclusion = format!("{paragraph} [1]. Fabricated claim [01].");
+    assert!(article::paragraph_states_marked_claims(
+        &padded.conclusion,
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(article::check_claim_sentences(&padded, std::slice::from_ref(&saved)).is_err());
+    assert!(
+        article::check_report(&padded, &analysis, std::slice::from_ref(&saved), false).is_err()
+    );
+    padded.conclusion = format!("{paragraph} [1]. See the [note].");
+    assert!(article::check_claim_sentences(&padded, std::slice::from_ref(&saved)).is_ok());
+    assert!(article::check_report(&padded, &analysis, std::slice::from_ref(&saved), false).is_ok());
+    assert!(article::paragraph_states_marked_claims(
         "| 存储 | 其它 |\n| --- | --- |\n| The system stores events. [1] | 未引用 |",
         "[1]",
         "stores",
@@ -874,6 +937,108 @@ fn copied_sentence_counts_toward_the_quote_budget() {
         &["一二"],
         &format!("{han} [1]。")
     ));
+    let shared = "fifteen sixteen seventeen eighteen nineteen twenty";
+    assert_eq!(shared.split_whitespace().count(), 6);
+    let host = format!(
+        "One two three four five six seven eight nine ten eleven twelve thirteen fourteen {shared}"
+    );
+    assert_eq!(host.split_whitespace().count(), 20);
+    let tail = "Alpha beta gamma";
+    assert_eq!(tail.split_whitespace().count(), 3);
+    assert!(!tail.contains("fifteen"));
+    assert!(within_budget(
+        &format!("{host}. {tail}."),
+        &["One", shared],
+        &format!("{host} [1]. {tail} [2]."),
+    ));
+    let other = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango";
+    assert_eq!(other.split_whitespace().count(), 20);
+    assert!(!other.contains("fifteen"));
+    let paragraph_b = format!("{other}. {shared}.");
+    let paragraphs_a = vec![format!("{host}.")];
+    let paragraphs_b = vec![paragraph_b];
+    let corpus = Corpus {
+        version: 1,
+        round: 1,
+        sources: vec![
+            Source {
+                source_id: "r1s1".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/official",
+                    "requested_url": "https://example.com/official",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs_a).unwrap())
+                }),
+                paragraphs: paragraphs_a,
+            },
+            Source {
+                source_id: "r1s2".into(),
+                origin: "user-input".into(),
+                fact: json!({
+                    "usable": true,
+                    "final_url": "https://example.com/other",
+                    "requested_url": "https://example.com/other",
+                    "title": "Controlled source (synthetic)",
+                    "reason": "Controlled saved paragraph, not real research",
+                    "captured_at": "2026-11-12T17:00:00Z",
+                    "fetch_status": "captured",
+                    "http_status": 200,
+                    "truncated": false,
+                    "normalized_sha256": inquiry::domain::hash(&serde_json::to_vec(&paragraphs_b).unwrap())
+                }),
+                paragraphs: paragraphs_b,
+            },
+        ],
+        searches: vec![],
+        limitations: vec![],
+    };
+    let saved = artifact(&serde_json::to_value(&corpus).unwrap());
+    let quotes = ["One", shared];
+    let sources = ["r1s1", "r1s2"];
+    let citations: Vec<Citation> = quotes
+        .iter()
+        .zip(sources)
+        .map(|(quote, source_id)| Citation {
+            artifact_id: saved.reference.id.clone(),
+            sha256: saved.reference.sha256.clone(),
+            source_id: source_id.into(),
+            paragraph: 0,
+            quote: (*quote).to_owned(),
+        })
+        .collect();
+    let evidence: Vec<_> = citations
+        .iter()
+        .enumerate()
+        .map(|(index, citation)| {
+            let mut item = serde_json::to_value(citation).unwrap();
+            item["id"] = json!(format!("e{}", index + 1));
+            item
+        })
+        .collect();
+    let ids = vec!["e1".to_string(), "e2".to_string()];
+    let report = Report {
+        answer_status: "answered".into(),
+        conclusion: format!("{host} [1]. {other} [2]."),
+        citations,
+        limitations: vec![],
+    };
+    let analysis = json!({
+        "evidence": evidence,
+        "judgments": [{"text": "Supported judgment", "support": ids, "counter": [], "limitations": []}],
+        "decision": "ready",
+        "gaps": [],
+        "coverage": [{"question": "Mechanism", "status": "answered", "conclusion": "A supported mechanism", "evidence_ids": ids}],
+        "search_queries": []
+    });
+    assert!(article::check_claim_sentences(&report, std::slice::from_ref(&saved)).is_ok());
+    assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved), true).is_err());
 }
 #[test]
 fn many_marked_sentences_are_checked_without_reparsing_each_citation() {

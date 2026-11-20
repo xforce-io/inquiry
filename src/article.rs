@@ -163,6 +163,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
+/// Emphasis closers sitting immediately after that punctuation stay on the sentence. A sentence end in a link label ends the sentence after the whole link. Punctuation inside the URL does not.
 /// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
 /// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence. A single letter after a word can end a sentence, as in "Plan A. Results improved." A. Smith stays one sentence. A hashtag without a space is not a heading, so a soft wrap keeps it in the sentence.
 /// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
@@ -789,12 +790,32 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
     let mut new_block = false;
     let mut index = 0;
     while index < chars.len() {
-        if let Some(end) = code_span_end(&chars, index).or_else(|| markdown_link_end(&chars, index))
-        {
+        if let Some(end) = code_span_end(&chars, index) {
             for ch in &chars[index..=end] {
                 current.push(*ch);
             }
             index = end + 1;
+            continue;
+        }
+        if let Some(end) = markdown_link_end(&chars, index) {
+            let ends_sentence = link_label_has_sentence_end(&chars, index, end);
+            for ch in &chars[index..=end] {
+                current.push(*ch);
+            }
+            index = end + 1;
+            if ends_sentence {
+                let sentence = current.trim().to_owned();
+                if sentence.is_empty() {
+                    new_block = true;
+                } else {
+                    sentences.push(SplitSentence {
+                        text: sentence,
+                        new_block,
+                    });
+                    new_block = false;
+                }
+                current.clear();
+            }
             continue;
         }
         let ch = chars[index];
@@ -805,7 +826,8 @@ fn split_sentences(text: &str) -> Vec<SplitSentence> {
         if punctuation {
             let period = index;
             index += 1;
-            while index < chars.len() && sentence_closer(chars[index]) {
+            let tail = trailing_syntax_end(&chars, index);
+            while index < tail {
                 current.push(chars[index]);
                 index += 1;
             }
@@ -975,11 +997,60 @@ fn sentence_closer(ch: char) -> bool {
         '"' | '\'' | '”' | '’' | '」' | '』' | ')' | '）' | '］' | '}' | '｝'
     )
 }
-fn english_sentence_period(chars: &[char], index: usize) -> bool {
-    let mut look = index + 1;
-    while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
-        look += 1;
+/// Quote and parenthesis closers, then emphasis closers, when they sit on the punctuation.
+/// An emphasis run is kept only when whitespace, the end, or another closer follows it.
+fn trailing_syntax_end(chars: &[char], start: usize) -> usize {
+    let mut look = start;
+    loop {
+        while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
+            look += 1;
+        }
+        let marks = look;
+        while chars
+            .get(look)
+            .is_some_and(|ch| matches!(ch, '*' | '_' | '`'))
+        {
+            look += 1;
+        }
+        if look == marks {
+            return look;
+        }
+        match chars.get(look).copied() {
+            None => return look,
+            Some(ch) if ch.is_whitespace() => return look,
+            Some(ch) if sentence_closer(ch) => continue,
+            _ => return marks,
+        }
     }
+}
+/// A period inside a link label is a sentence end in the visible text.
+/// The URL stays on that sentence, and the next sentence starts after the link.
+fn link_label_has_sentence_end(chars: &[char], start: usize, link_end: usize) -> bool {
+    let Some(relative) = chars[start + 1..=link_end].iter().position(|ch| *ch == ']') else {
+        return false;
+    };
+    let label_close = start + 1 + relative;
+    let label = &chars[start + 1..label_close];
+    let mut visible = label.to_vec();
+    visible.extend_from_slice(&chars[link_end + 1..]);
+    let mut index = 0;
+    while index < label.len() {
+        if let Some(end) = code_span_end(label, index) {
+            index = end + 1;
+            continue;
+        }
+        let ch = label[index];
+        let punctuation = matches!(ch, '。' | '！' | '？' | '!' | '?')
+            || (ch == '.' && english_sentence_period(&visible, index));
+        if punctuation {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+fn english_sentence_period(chars: &[char], index: usize) -> bool {
+    let mut look = trailing_syntax_end(chars, index + 1);
     let after_closers = look;
     if chars.get(look).copied() == Some('[') {
         return !abbreviation_before(chars, index);
@@ -1162,10 +1233,7 @@ fn clause_before_initialism(chars: &[char], letter: usize) -> bool {
     }
 }
 fn words_after_period(chars: &[char], period: usize) -> Option<(String, Option<String>)> {
-    let mut look = period + 1;
-    while chars.get(look).is_some_and(|ch| sentence_closer(*ch)) {
-        look += 1;
-    }
+    let mut look = trailing_syntax_end(chars, period + 1);
     while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
         look += 1;
     }
@@ -1236,16 +1304,23 @@ fn copied_claim_text(sentence: &str) -> String {
     }
     normalize_claim(&strip_article_syntax(&text))
 }
+fn canonical_citation_number(digits: &str) -> Option<usize> {
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let number = digits.parse::<usize>().ok()?;
+    (format!("{number}") == digits).then_some(number)
+}
 fn marker_index(marker: &str) -> Option<usize> {
     marker
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
-        .and_then(|digits| digits.parse::<usize>().ok())
+        .and_then(canonical_citation_number)
         .and_then(|number| number.checked_sub(1))
 }
 /// Copied marked sentences count toward the same per-URL budget as short quotes.
 /// One sentence position is counted once per URL. A later paste of the same words is another position.
-/// A short quote already inside a counted sentence is not added again.
+/// A short quote already inside any counted sentence for that same URL is not added again.
 fn add_copied_sentence_budget(
     report: &Report,
     urls: &[String],
@@ -1253,7 +1328,7 @@ fn add_copied_sentence_budget(
 ) {
     let sentences = sentences_with_trailing_markers(&report.conclusion);
     let mut seen: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
-    let mut quote_inside = vec![false; report.citations.len()];
+    let mut billed: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (index, sentence) in sentences.iter().enumerate() {
         if strip_article_syntax(sentence).trim().is_empty() {
             continue;
@@ -1274,19 +1349,23 @@ fn add_copied_sentence_budget(
             let Some(url) = urls.get(cite_index) else {
                 continue;
             };
-            let quote = normalize_claim(&report.citations[cite_index].quote);
-            if !quote.is_empty() && copied.contains(&quote) {
-                quote_inside[cite_index] = true;
-            }
             if seen.entry(url.clone()).or_default().insert(index) {
                 *quotes.entry(url.clone()).or_default() += words;
+                billed.entry(url.clone()).or_default().push(copied.clone());
             }
         }
     }
-    for (cite_index, inside) in quote_inside.iter().enumerate() {
-        if !inside {
-            *quotes.entry(urls[cite_index].clone()).or_default() +=
-                quoted_words(&report.citations[cite_index].quote);
+    for (cite_index, citation) in report.citations.iter().enumerate() {
+        let Some(url) = urls.get(cite_index) else {
+            continue;
+        };
+        let quote = normalize_claim(&citation.quote);
+        let already_copied = !quote.is_empty()
+            && billed.get(url).is_some_and(|sentences| {
+                sentences.iter().any(|sentence| sentence.contains(&quote))
+            });
+        if !already_copied {
+            *quotes.entry(url.clone()).or_default() += quoted_words(&citation.quote);
         }
     }
 }
@@ -1343,10 +1422,16 @@ pub fn check_report(
         return Err(fault("同一来源累计短引文超过二十五词"));
     }
     for part in report.conclusion.split('[').skip(1) {
-        if let Some((n, _)) = part.split_once(']')
-            && let Ok(n) = n.parse::<usize>()
-            && !(1..=report.citations.len()).contains(&n)
-        {
+        let Some((digits, _)) = part.split_once(']') else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let Some(number) = canonical_citation_number(digits) else {
+            return Err(fault("正文引用编号悬空"));
+        };
+        if !(1..=report.citations.len()).contains(&number) {
             return Err(fault("正文引用编号悬空"));
         }
     }
@@ -1356,6 +1441,22 @@ pub fn check_report(
 /// `article-integrity@1` does not call this. The claim-paragraph rule does.
 pub fn check_claim_sentences(report: &Report, accepted: &[ArtifactData]) -> Result<()> {
     let claims = claims_by_marker(&report.conclusion);
+    for marker in claims.keys() {
+        let Some(digits) = marker
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        else {
+            continue;
+        };
+        if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let in_range = canonical_citation_number(digits)
+            .is_some_and(|number| (1..=report.citations.len()).contains(&number));
+        if !in_range {
+            return Err(fault("所引段落没有写出带该标记的主张句"));
+        }
+    }
     let mut cached: BTreeMap<(String, String, usize), (String, Vec<String>)> = BTreeMap::new();
     for (index, citation) in report.citations.iter().enumerate() {
         let marker = format!("[{}]", index + 1);
