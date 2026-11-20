@@ -626,6 +626,30 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "A. Smith found it.",
     ));
     assert!(article::paragraph_states_marked_claims(
+        "Results improved [1].",
+        "[1]",
+        "improved",
+        "Plan A. Results improved.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "Smith found it [1].",
+        "[1]",
+        "found",
+        "Meet A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Meet A. Smith found it [1].",
+        "[1]",
+        "found",
+        "Meet A. Smith found it.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Exact source\n#hashtag continues [1].",
+        "[1]",
+        "hashtag",
+        "Exact source #hashtag continues.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
         "A. B. Smith found it [1].",
         "[1]",
         "found",
@@ -828,6 +852,16 @@ fn copied_sentence_counts_toward_the_quote_budget() {
         &format!("{first}. {second}."),
         &["One"],
         &format!("{first} [1]."),
+    ));
+    assert!(over_budget(
+        &format!("{first}."),
+        &["One"],
+        &format!("{first} [1]. {first} [1]."),
+    ));
+    assert!(within_budget(
+        &format!("{first}."),
+        &["One", "two"],
+        &format!("{first} [1][2]."),
     ));
     let han = "一二三四五六七八九十一二三四五六七八九十一二三四五六";
     assert_eq!(han.chars().count(), 26);

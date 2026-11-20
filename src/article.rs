@@ -164,7 +164,7 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
 /// A period ends an English sentence at the end of the text, or when whitespace and a new sentence follow. The new sentence may start with a letter or a digit.
 /// A decimal or version point such as 2.0 is not a sentence end. A listed abbreviation such as Dr. or Eq. stays in the sentence, even when a citation marker follows it.
-/// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence.
+/// The final period of an initialism such as U.S. ends the sentence only when a new sentence follows a clause, as in "We operate in the U.S. Sales rose." A capitalized name stays on the initialism, so "U.S. Government" and "U.K. Government" remain different sentences. U.S. policy stays one sentence. A single letter after a word can end a sentence, as in "Plan A. Results improved." A. Smith stays one sentence. A hashtag without a space is not a heading, so a soft wrap keeps it in the sentence.
 /// A closing quote or parenthesis after 。！？ stays on that sentence. A Markdown heading is article syntax only when the hash marks are followed by a space.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
@@ -616,7 +616,7 @@ fn list_continuation(previous: &str, next: &str) -> bool {
         && !markdown_block_line(next.trim_start())
 }
 fn markdown_block_line(trimmed: &str) -> bool {
-    trimmed.starts_with('#')
+    heading_body(trimmed).is_some()
         || trimmed.starts_with('>')
         || trimmed.starts_with("```")
         || markdown_list_item(trimmed)
@@ -1039,6 +1039,7 @@ const ORDINARY_SUBJECTS: &[&str] = &[
     "prices",
     "profit",
     "profits",
+    "results",
     "revenue",
     "sales",
 ];
@@ -1054,25 +1055,29 @@ fn abbreviation_before(chars: &[char], period: usize) -> bool {
     }
     let word: String = chars[start..period].iter().collect();
     if word.len() == 1 && word.chars().all(|ch| ch.is_ascii_alphabetic()) {
-        let initialism_end = start > 0 && chars[start - 1] == '.';
-        if initialism_end && initialism_starts_new_sentence(chars, period, start) {
-            return false;
-        }
-        return true;
+        return !letter_ends_sentence(chars, period, start);
     }
     ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
 }
-fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) -> bool {
-    if !clause_before_initialism(chars, letter) {
-        return false;
+fn letter_ends_sentence(chars: &[char], period: usize, letter: usize) -> bool {
+    let initialism_end = letter > 0 && chars[letter - 1] == '.';
+    if initialism_end {
+        return initialism_starts_new_sentence(chars, period, letter);
     }
+    // `A. Smith` has no earlier word. `Plan A. Results` does, and the next word opens a sentence.
+    multi_letter_word_before(chars, letter) && sentence_opens_after(chars, period)
+}
+fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) -> bool {
+    clause_before_initialism(chars, letter) && sentence_opens_after(chars, period)
+}
+fn sentence_opens_after(chars: &[char], period: usize) -> bool {
     let Some((next, after)) = words_after_period(chars, period) else {
         return false;
     };
     let Some(first) = next.chars().next() else {
         return false;
     };
-    if !first.is_ascii_uppercase() {
+    if !first.is_ascii_uppercase() || next.chars().count() == 1 {
         return false;
     }
     let next = next.to_ascii_lowercase();
@@ -1080,6 +1085,27 @@ fn initialism_starts_new_sentence(chars: &[char], period: usize, letter: usize) 
         return true;
     }
     ORDINARY_SUBJECTS.contains(&next.as_str()) && after.is_some_and(|word| finite_verb(&word))
+}
+fn multi_letter_word_before(chars: &[char], letter: usize) -> bool {
+    if letter == 0 {
+        return false;
+    }
+    let mut index = letter - 1;
+    while chars[index].is_whitespace() {
+        if index == 0 {
+            return false;
+        }
+        index -= 1;
+    }
+    let end = index + 1;
+    while index > 0 && chars[index - 1].is_ascii_alphanumeric() {
+        index -= 1;
+    }
+    chars[index..end]
+        .iter()
+        .filter(|ch| ch.is_ascii_alphabetic())
+        .count()
+        >= 2
 }
 fn clause_before_initialism(chars: &[char], letter: usize) -> bool {
     let mut index = letter;
@@ -1190,23 +1216,31 @@ fn copied_claim_text(sentence: &str) -> String {
 /// Copied marked sentences count toward the same per-URL budget as short quotes.
 /// A short quote already inside a counted sentence is not added again.
 fn quote_budget_addition(
-    conclusion: &str,
+    sentences: &[String],
     marker: &str,
     quote: &str,
-    seen: &mut BTreeSet<String>,
+    seen: &mut BTreeSet<usize>,
 ) -> usize {
     let quote = normalize_claim(quote);
     let mut words = 0;
     let mut quote_inside = false;
-    for claim in marked_claims(conclusion, marker) {
-        let copied = copied_claim_text(&claim);
+    for (index, sentence) in sentences.iter().enumerate() {
+        if !citation_markers(sentence)
+            .iter()
+            .any(|found| found == marker)
+            || strip_article_syntax(sentence).trim().is_empty()
+        {
+            continue;
+        }
+        let copied = copied_claim_text(sentence);
         if copied.is_empty() {
             continue;
         }
         if !quote.is_empty() && copied.contains(&quote) {
             quote_inside = true;
         }
-        if seen.insert(copied.clone()) {
+        // The same sentence position can carry two markers. A repeated paste is another position.
+        if seen.insert(index) {
             words += quoted_words(&copied);
         }
     }
@@ -1230,7 +1264,8 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         .ok_or_else(|| fault("缺少分析证据"))?;
     let mut used = BTreeSet::new();
     let mut quotes = BTreeMap::<String, usize>::new();
-    let mut counted = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut counted = BTreeMap::<String, BTreeSet<usize>>::new();
+    let sentences = sentences_with_trailing_markers(&report.conclusion);
     for (index, c) in report.citations.iter().enumerate() {
         let url = verify_citation(c, accepted)?;
         let key = serde_json::to_string(c)?;
@@ -1251,7 +1286,7 @@ pub fn check_report(report: &Report, analysis: &Value, accepted: &[ArtifactData]
         }
         let seen = counted.entry(url.clone()).or_default();
         *quotes.entry(url).or_default() +=
-            quote_budget_addition(&report.conclusion, &marker, &c.quote, seen);
+            quote_budget_addition(&sentences, &marker, &c.quote, seen);
     }
     if quotes.values().any(|n| *n > 25) {
         return Err(fault("同一来源累计短引文超过二十五词"));
