@@ -154,10 +154,12 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 }
 /// The saved paragraph states each sentence that carries this marker.
 /// A short quote inside the paragraph is not enough when the sentence says something else.
-/// A marker after the sentence end belongs to that sentence. List marks, links, emphasis, and table pipes are article syntax.
+/// A marker after the sentence end belongs to that sentence when it stays in the same block. A marker after a blank line does not.
+/// List marks, links, emphasis, and table pipes are article syntax. A table row is compared through the cells that carry a marker.
 /// The citation marker may sit inside the sentence. A different in-sentence marker, such as [12], stays.
 /// The remaining sentence must equal one whole sentence of the paragraph. A fragment inside a longer sentence does not pass.
 /// A Markdown soft wrap stays inside that sentence. A blank line, heading, or new list item starts another.
+/// A period ends an English sentence before a citation marker, or when the next sentence starts and the word before the period has at least four letters and a lowercase letter.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -172,7 +174,7 @@ pub fn paragraph_states_marked_claims(
         && claims.iter().all(|claim| {
             split_sentences(paragraph)
                 .iter()
-                .any(|sentence| claim_equals_source(claim, marker, sentence))
+                .any(|sentence| claim_equals_source(claim, marker, &sentence.text))
         })
 }
 fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
@@ -208,25 +210,27 @@ fn count_marker(text: &str, marker: &str) -> usize {
 }
 fn sentences_with_trailing_markers(text: &str) -> Vec<String> {
     let mut prepared: Vec<String> = Vec::new();
-    for sentence in split_sentences(text) {
-        let (leading, rest) = peel_leading_markers(&sentence);
-        if !leading.is_empty()
+    for sentence in split_sentences(&isolate_marked_table_cells(text)) {
+        let (leading, rest) = peel_leading_markers(&sentence.text);
+        let same_block = !sentence.new_block;
+        if same_block
+            && !leading.is_empty()
             && let Some(previous) = prepared.last_mut()
         {
             previous.push(' ');
             previous.push_str(&leading);
         }
         if !rest.is_empty() {
-            if leading.is_empty() || prepared.is_empty() {
-                prepared.push(if leading.is_empty() {
-                    sentence
+            if !same_block || leading.is_empty() || prepared.is_empty() {
+                prepared.push(if leading.is_empty() || !same_block {
+                    sentence.text.trim().to_owned()
                 } else {
                     format!("{leading} {rest}")
                 });
             } else {
                 prepared.push(rest);
             }
-        } else if prepared.is_empty() && !leading.is_empty() {
+        } else if !leading.is_empty() && (!same_block || prepared.is_empty()) {
             prepared.push(leading);
         }
     }
@@ -463,26 +467,70 @@ fn ordered_list_item(trimmed: &str) -> bool {
         .count();
     digits > 0 && trimmed[digits..].starts_with(". ")
 }
-fn split_sentences(text: &str) -> Vec<String> {
+struct SplitSentence {
+    text: String,
+    /// A newline, including a blank line, separates this sentence from the previous one.
+    new_block: bool,
+}
+/// A line with two or more pipes keeps only cells that carry a citation marker.
+/// Those cells are separate blocks, so an unmarked cell is not part of the claim.
+fn isolate_marked_table_cells(text: &str) -> String {
+    text.split('\n')
+        .map(marked_table_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+fn marked_table_line(line: &str) -> String {
+    let line = line.trim_end_matches('\r');
+    let trimmed = line.trim();
+    if trimmed.matches('|').count() < 2 {
+        return line.to_owned();
+    }
+    let marked: Vec<&str> = trimmed
+        .trim_matches('|')
+        .split('|')
+        .map(str::trim)
+        .filter(|cell| !cell.is_empty() && !citation_markers(cell).is_empty())
+        .collect();
+    if marked.is_empty() {
+        line.to_owned()
+    } else {
+        format!("\n\n{}\n\n", marked.join("\n\n"))
+    }
+}
+/// A blank line starts a new block. A citation marker there is not part of the previous sentence.
+fn split_sentences(text: &str) -> Vec<SplitSentence> {
     let text = join_markdown_soft_wraps(text);
     let chars: Vec<char> = text.chars().collect();
     let mut sentences = Vec::new();
     let mut current = String::new();
+    let mut new_block = false;
     for (index, ch) in chars.iter().enumerate() {
         current.push(*ch);
-        let boundary = matches!(ch, '\n' | '。' | '！' | '？' | '!' | '?')
+        let newline = *ch == '\n';
+        let boundary = newline
+            || matches!(ch, '。' | '！' | '？' | '!' | '?')
             || (*ch == '.' && english_sentence_period(&chars, index));
         if boundary {
             let sentence = current.trim().to_owned();
-            if !sentence.is_empty() {
-                sentences.push(sentence);
+            if sentence.is_empty() {
+                new_block = true;
+            } else {
+                sentences.push(SplitSentence {
+                    text: sentence,
+                    new_block,
+                });
+                new_block = newline;
             }
             current.clear();
         }
     }
     let tail = current.trim().to_owned();
     if !tail.is_empty() {
-        sentences.push(tail);
+        sentences.push(SplitSentence {
+            text: tail,
+            new_block,
+        });
     }
     sentences
 }
@@ -513,7 +561,7 @@ fn ordinary_word_before(chars: &[char], period: usize) -> bool {
         start -= 1;
     }
     let word: String = chars[start..period].iter().collect();
-    word.chars().count() >= 5 && word.chars().any(|ch| ch.is_ascii_lowercase())
+    word.chars().count() >= 4 && word.chars().any(|ch| ch.is_ascii_lowercase())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

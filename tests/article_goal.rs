@@ -315,6 +315,36 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "decrease",
         "Eq. 2 shows a decrease.",
     ));
+    assert!(!article::paragraph_states_marked_claims(
+        "完整主张。\n\n[1]",
+        "[1]",
+        "主张",
+        "完整主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "完整主张。\n[1]",
+        "[1]",
+        "主张",
+        "完整主张。",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "This is true. [1] Next sentence.",
+        "[1]",
+        "true",
+        "This is true. Next sentence.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| 存储 | The system stores events. [1] |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "| 项 | 主张 |\n| --- | --- |\n| 存储 | The system stores events. [1] |",
+        "[1]",
+        "stores",
+        "The system stores events.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());
