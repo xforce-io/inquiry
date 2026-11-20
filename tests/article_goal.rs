@@ -291,6 +291,24 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         "stores",
         "The system stores events.",
     ));
+    assert!(article::paragraph_states_marked_claims(
+        "Prior work [1] showed X [1].",
+        "[1]",
+        "showed",
+        "Prior work [1] showed X.",
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "2 shows a decrease [1].",
+        "[1]",
+        "decrease",
+        "Eq. 2 shows a decrease.",
+    ));
+    assert!(article::paragraph_states_marked_claims(
+        "Eq. 2 shows a decrease [1].",
+        "[1]",
+        "decrease",
+        "Eq. 2 shows a decrease.",
+    ));
     let mut second = report.citations[0].clone();
     second.quote = "real mechanism".into();
     report.citations.push(second.clone());
@@ -496,7 +514,7 @@ async fn data_review_failure_reaches_revision_and_final_goal_verdict_is_independ
         let revise = final_state
             .runs
             .values()
-            .find(|run| run.entry_ref == "article-revise@1")
+            .find(|run| run.entry_ref == "article-revise@2")
             .unwrap();
         let policy = &revise.budget.as_ref().unwrap().policy;
         assert_eq!(policy.max_run_ms, Some(300_000));

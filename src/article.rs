@@ -172,7 +172,7 @@ pub fn paragraph_states_marked_claims(
         && claims.iter().all(|claim| {
             split_sentences(paragraph)
                 .iter()
-                .any(|sentence| normalize_claim(sentence) == *claim)
+                .any(|sentence| claim_equals_source(claim, marker, sentence))
         })
 }
 fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
@@ -183,9 +183,28 @@ fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
                 .iter()
                 .any(|found| found == marker)
         })
-        .map(|sentence| normalize_claim(&claim_text(&sentence, marker)))
+        .map(|sentence| strip_article_syntax(&sentence))
         .filter(|claim| !claim.is_empty())
         .collect()
+}
+fn claim_equals_source(article: &str, marker: &str, source: &str) -> bool {
+    let source = normalize_claim(source);
+    let mut article = normalize_claim(article);
+    let extra = count_marker(&article, marker).saturating_sub(count_marker(&source, marker));
+    for _ in 0..extra {
+        let Some(next) = remove_rightmost_marker(&article, marker) else {
+            break;
+        };
+        article = normalize_claim(&next);
+    }
+    article = normalize_claim(&strip_trailing_markers_not_in_source(&article, &source));
+    article == source
+}
+fn count_marker(text: &str, marker: &str) -> usize {
+    citation_markers(text)
+        .iter()
+        .filter(|found| found.as_str() == marker)
+        .count()
 }
 fn sentences_with_trailing_markers(text: &str) -> Vec<String> {
     let mut prepared: Vec<String> = Vec::new();
@@ -256,32 +275,80 @@ fn citation_markers(text: &str) -> Vec<String> {
     }
     markers
 }
-fn claim_text(sentence: &str, marker: &str) -> String {
+fn strip_article_syntax(sentence: &str) -> String {
     let without_pipes = sentence.replace('|', "");
-    let without_marker = remove_marker_token(&without_pipes, marker);
-    let stated = strip_trailing_report_markers(&without_marker);
-    let plain = strip_emphasis_markers(&strip_markdown_links(&stated)).replace('`', "");
+    let plain = strip_emphasis_markers(&strip_markdown_links(&without_pipes)).replace('`', "");
     strip_list_prefix(plain.trim())
 }
-fn remove_marker_token(text: &str, marker: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(index) = rest.find(marker) {
-        let after = index + marker.len();
-        let inside_longer_marker = rest[after..]
+fn remove_rightmost_marker(text: &str, marker: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut found = None;
+    while index < bytes.len() {
+        if bytes[index] == b'['
+            && let Some(relative) = text[index + 1..].find(']')
+        {
+            let inside = &text[index + 1..index + 1 + relative];
+            if !inside.is_empty() && inside.bytes().all(|byte| byte.is_ascii_digit()) {
+                let end = index + 1 + relative + 1;
+                if text[index..end] == *marker {
+                    found = Some((index, end));
+                }
+                index = end;
+                continue;
+            }
+        }
+        index += text[index..]
             .chars()
             .next()
-            .is_some_and(|ch| ch.is_ascii_digit());
-        if inside_longer_marker {
-            out.push_str(&rest[..=index]);
-            rest = &rest[index + 1..];
-            continue;
-        }
-        out.push_str(&rest[..index]);
-        rest = &rest[after..];
+            .map(char::len_utf8)
+            .unwrap_or(1);
     }
-    out.push_str(rest);
-    out
+    let (mut start, mut end) = found?;
+    let before_space = start > 0 && text.as_bytes()[start - 1].is_ascii_whitespace();
+    let after = text[end..].trim_start();
+    if before_space && (after.is_empty() || after.starts_with(['.', '。', '！', '？', '!', '?']))
+    {
+        start -= 1;
+    } else if before_space && text[end..].starts_with(|ch: char| ch.is_whitespace()) {
+        end += text[end..].chars().next().map(char::len_utf8).unwrap_or(1);
+    }
+    Some(format!("{}{}", &text[..start], &text[end..]))
+}
+fn strip_trailing_markers_not_in_source(article: &str, source: &str) -> String {
+    let mut text = article.trim().to_owned();
+    let mut source_body = source.trim().to_owned();
+    let terminator = text
+        .chars()
+        .last()
+        .filter(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'));
+    if terminator.is_some() {
+        text.pop();
+        text = text.trim_end().to_owned();
+    }
+    if source_body
+        .chars()
+        .last()
+        .is_some_and(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'))
+    {
+        source_body.pop();
+        source_body = source_body.trim_end().to_owned();
+    }
+    loop {
+        let markers = citation_markers(&text);
+        let Some(last) = markers.last() else {
+            break;
+        };
+        if !text.ends_with(last.as_str()) || source_body.ends_with(last.as_str()) {
+            break;
+        }
+        text.truncate(text.len() - last.len());
+        text = text.trim_end().to_owned();
+    }
+    if let Some(ch) = terminator {
+        text.push(ch);
+    }
+    text
 }
 fn strip_emphasis_markers(text: &str) -> String {
     let text = text.replace("**", "").replace("__", "");
@@ -301,32 +368,6 @@ fn strip_emphasis_markers(text: &str) -> String {
         out.push(*ch);
     }
     out
-}
-fn strip_trailing_report_markers(sentence: &str) -> String {
-    let mut text = sentence.trim().to_owned();
-    let terminator = text
-        .chars()
-        .last()
-        .filter(|ch| matches!(ch, '.' | '。' | '！' | '？' | '!' | '?'));
-    if terminator.is_some() {
-        text.pop();
-        text = text.trim_end().to_owned();
-    }
-    loop {
-        let markers = citation_markers(&text);
-        let Some(last) = markers.last() else {
-            break;
-        };
-        if !text.ends_with(last.as_str()) {
-            break;
-        }
-        text.truncate(text.len() - last.len());
-        text = text.trim_end().to_owned();
-    }
-    if let Some(ch) = terminator {
-        text.push(ch);
-    }
-    text
 }
 fn strip_markdown_links(text: &str) -> String {
     let mut out = String::new();
@@ -446,24 +487,30 @@ fn split_sentences(text: &str) -> Vec<String> {
     sentences
 }
 fn english_sentence_period(chars: &[char], index: usize) -> bool {
-    let next = chars.get(index + 1).copied();
-    next.is_none_or(|next| next.is_whitespace() || next == '[')
-        && !abbreviation_before(chars, index)
+    if chars.get(index + 1).copied() == Some('[') {
+        return true;
+    }
+    let mut look = index + 1;
+    while chars.get(look).is_some_and(|ch| ch.is_whitespace()) {
+        look += 1;
+    }
+    let Some(start) = chars.get(look).copied() else {
+        return true;
+    };
+    sentence_start(start) && ordinary_word_before(chars, index)
 }
-fn abbreviation_before(chars: &[char], period: usize) -> bool {
+fn sentence_start(ch: char) -> bool {
+    ch.is_uppercase()
+        || ('\u{3400}'..='\u{9fff}').contains(&ch)
+        || matches!(ch, '"' | '\'' | '“' | '‘' | '(')
+}
+fn ordinary_word_before(chars: &[char], period: usize) -> bool {
     let mut start = period;
     while start > 0 && chars[start - 1].is_ascii_alphanumeric() {
         start -= 1;
     }
     let word: String = chars[start..period].iter().collect();
-    if word.chars().count() == 1 && chars.get(start).is_some_and(|ch| ch.is_ascii_alphabetic()) {
-        return true;
-    }
-    const ABBREVIATIONS: &[&str] = &[
-        "dr", "mr", "mrs", "ms", "prof", "jr", "sr", "st", "gen", "col", "rev", "hon", "fig", "vs",
-        "etc", "inc", "ltd", "co", "corp",
-    ];
-    ABBREVIATIONS.contains(&word.to_ascii_lowercase().as_str())
+    word.chars().count() >= 5 && word.chars().any(|ch| ch.is_ascii_lowercase())
 }
 fn normalize_claim(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
