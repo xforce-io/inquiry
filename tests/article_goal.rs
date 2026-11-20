@@ -104,7 +104,7 @@ fn exact_source_versions_and_analysis_lineage_are_required() {
 #[test]
 fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
     let saved = artifact(&serde_json::to_value(package(1)).unwrap());
-    let (mut report, analysis) = report_and_analysis(&saved);
+    let (mut report, mut analysis) = report_and_analysis(&saved);
     let paragraph = "A saved official statement with a real mechanism and limitation.";
     let quote = report.citations[0].quote.clone();
     assert!(paragraph.contains(&quote));
@@ -126,6 +126,43 @@ fn claim_marker_fails_when_the_paragraph_states_a_different_fact() {
         paragraph,
     ));
     assert!(article::check_report(&report, &analysis, std::slice::from_ref(&saved)).is_err());
+    let stated = "A saved official statement with a real mechanism and limitation";
+    for conclusion in [
+        format!("{stated} [1][2]."),
+        format!("A saved **official statement** with a real mechanism and limitation [1]."),
+    ] {
+        assert!(
+            article::paragraph_states_marked_claims(&conclusion, "[1]", &quote, paragraph),
+            "{conclusion}"
+        );
+    }
+    assert!(article::paragraph_states_marked_claims(
+        &format!("{stated} [1][2]."),
+        "[2]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        &format!("{stated} [10]."),
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    assert!(!article::paragraph_states_marked_claims(
+        "The official statement proves there is no limitation [1].",
+        "[1]",
+        &quote,
+        paragraph,
+    ));
+    let mut second = report.citations[0].clone();
+    second.quote = "real mechanism".into();
+    report.citations.push(second.clone());
+    report.conclusion =
+        format!("## Mechanism\n{stated} [1][2].\n## Limits\nConditional conclusion.");
+    let mut evidence = serde_json::to_value(&second).unwrap();
+    evidence["id"] = json!("e2");
+    analysis["evidence"].as_array_mut().unwrap().push(evidence);
+    article::check_report(&report, &analysis, std::slice::from_ref(&saved)).unwrap();
 }
 #[async_trait]
 impl Executor for Agent {

@@ -154,6 +154,8 @@ pub fn check_analysis(analysis: &Value, accepted: &[ArtifactData]) -> Result<()>
 }
 /// The saved paragraph states each sentence that carries this marker.
 /// A short quote inside the paragraph is not enough when the sentence says something else.
+/// Citation markers and Markdown emphasis are article syntax, not part of the stated sentence.
+/// A paraphrase the paragraph does not contain still fails.
 pub fn paragraph_states_marked_claims(
     conclusion: &str,
     marker: &str,
@@ -169,16 +171,54 @@ pub fn paragraph_states_marked_claims(
 fn marked_claims(conclusion: &str, marker: &str) -> Vec<String> {
     split_sentences(conclusion)
         .into_iter()
-        .filter(|sentence| sentence.contains(marker))
-        .map(|sentence| {
-            normalize_claim(
-                &sentence
-                    .replace(&format!(" {marker}"), "")
-                    .replace(marker, ""),
-            )
+        .filter(|sentence| {
+            citation_markers(sentence)
+                .iter()
+                .any(|found| found == marker)
         })
+        .map(|sentence| normalize_claim(&claim_text(&sentence)))
         .filter(|claim| !claim.is_empty())
         .collect()
+}
+fn citation_markers(text: &str) -> Vec<String> {
+    let mut markers = Vec::new();
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'['
+            && let Some(relative) = text[index + 1..].find(']')
+        {
+            let inside = &text[index + 1..index + 1 + relative];
+            if !inside.is_empty() && inside.bytes().all(|byte| byte.is_ascii_digit()) {
+                let end = index + 1 + relative + 1;
+                markers.push(text[index..end].to_owned());
+                index = end;
+                continue;
+            }
+        }
+        index += text[index..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+    }
+    markers
+}
+fn claim_text(sentence: &str) -> String {
+    let mut kept = String::new();
+    let mut rest = sentence;
+    for marker in citation_markers(sentence) {
+        let Some(start) = rest.find(&marker) else {
+            break;
+        };
+        kept.push_str(&rest[..start]);
+        if kept.ends_with(' ') {
+            kept.pop();
+        }
+        rest = &rest[start + marker.len()..];
+    }
+    kept.push_str(rest);
+    kept.replace("**", "").replace("__", "").replace('`', "")
 }
 fn split_sentences(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
